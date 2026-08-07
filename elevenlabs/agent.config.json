@@ -12,23 +12,22 @@
     "",
     "Alle Schlüssel mit führendem Unterstrich werden vor dem Senden entfernt."
   ],
-
   "name": "${AGENT_NAME}",
-  "tags": ["voice-agent", "vorzimmer", "damjan"],
-
+  "tags": [
+    "voice-agent",
+    "vorzimmer",
+    "damjan"
+  ],
   "conversation_config": {
     "agent": {
       "language": "de",
-
       "_first_message": [
         "Wird pro Anruf vom Vorab-Webhook je nach Modus überschrieben.",
         "Dieser Text hier gilt, wenn der Webhook nicht antwortet — er ist",
         "bewusst so formuliert, dass er in jedem Modus vertretbar ist."
       ],
       "first_message": "Guten Tag, hier ist der Assistent von Damjan Savić. Er kann gerade nicht selbst ans Telefon — worum geht es denn?",
-
       "disable_first_message_interruptions": false,
-
       "_dynamic_variables": [
         "Standardwerte für den Fall, dass der Vorab-Webhook ausfällt oder",
         "eine Variable nicht mitschickt. Ohne diese Platzhalter bricht der",
@@ -49,11 +48,9 @@
           "uhrzeit": "unbekannt"
         }
       },
-
       "prompt": {
         "_prompt": "Wird von provision-elevenlabs.mjs aus prompts/system-prompt.md eingesetzt.",
         "prompt": "",
-
         "_llm": [
           "gemini-2.5-flash ist der ElevenLabs-Standard: schnellste Antwortzeit",
           "und rund 0,0014 USD je Gesprächsminute. claude-haiku-4-5 urteilt bei",
@@ -64,21 +61,19 @@
           "Vollständige Liste mit Preisen: elevenlabs/llm-preise.json"
         ],
         "llm": "${ELEVENLABS_LLM}",
-
         "_temperature": "0 heißt: gleiche Situation, gleiche Entscheidung. Am Telefon ist Verlässlichkeit mehr wert als Abwechslung.",
         "temperature": 0.15,
         "max_tokens": 400,
-
         "tool_ids": [],
-
         "built_in_tools": {
           "end_call": {
             "type": "system",
             "name": "end_call",
             "description": "Beendet das Gespräch. Erst aufrufen, nachdem notiz_anlegen gelaufen ist und du dich verabschiedet hast.",
-            "params": { "system_tool_type": "end_call" }
+            "params": {
+              "system_tool_type": "end_call"
+            }
           },
-
           "_transfer_to_number": [
             "Das Ziel ist eine feste Liste, keine frei wählbare Nummer — das",
             "Sprachmodell kann also niemand anderen anrufen als Damjan.",
@@ -112,23 +107,35 @@
               ]
             }
           },
-
           "_skip_turn": "Lässt den Agent schweigen, wenn der Anrufer erkennbar noch nachdenkt, statt in die Pause zu reden.",
           "skip_turn": {
             "type": "system",
             "name": "skip_turn",
             "description": "Nichts sagen und dem Anrufer Zeit lassen. Nutzen, wenn er hörbar überlegt oder etwas sucht.",
-            "params": { "system_tool_type": "skip_turn" }
+            "params": {
+              "system_tool_type": "skip_turn"
+            }
+          },
+          "language_detection": {
+            "_kommentar": "Der Systemprompt sagt zu, bei englischsprachigen Anrufern mitzuwechseln. Ohne dieses Werkzeug kann der Agent das nicht — er antwortete weiter deutsch. Entweder das Versprechen streichen oder die Fähigkeit herstellen; hier das Zweite, weil ein englischsprachiger Anrufer sonst gar nichts versteht.",
+            "type": "system",
+            "name": "language_detection",
+            "description": "Wechselt die Sprache, wenn der Anrufer erkennbar eine andere spricht.",
+            "params": {
+              "system_tool_type": "language_detection",
+              "only_at_conversation_start": false
+            }
           }
         },
-
         "knowledge_base": [],
-
         "_rag": "Bei einer Handvoll kurzer Dokumente ist die Volltextübergabe schneller und genauer als eine Vektorsuche.",
-        "rag": { "enabled": false }
-      }
+        "rag": {
+          "enabled": false
+        }
+      },
+      "_max_conversation_duration_message": "Ohne diesen Satz endet das Gespräch bei 360 Sekunden wortlos mitten im Satz. Der Anrufer hielte das für einen Verbindungsabbruch und riefe sofort wieder an.",
+      "max_conversation_duration_message": "Entschuldigung, ich muss das Gespräch hier beenden. Ich habe alles notiert und gebe es weiter — Damjan meldet sich bei Ihnen. Auf Wiederhören."
     },
-
     "_tts": [
       "eleven_flash_v2_5 ist das Modell mit der niedrigsten Latenz und kann",
       "Deutsch. Am Telefon zählt jede Zehntelsekunde vor der ersten Silbe.",
@@ -144,7 +151,6 @@
       "similarity_boost": 0.75,
       "speed": 1.0
     },
-
     "_asr": [
       "keywords hebt Begriffe an, die das Erkennungsmodell sonst verhaspelt —",
       "vor allem der Nachname und die eigenen Fachbegriffe."
@@ -154,12 +160,22 @@
       "provider": "scribe_realtime",
       "user_input_audio_format": "ulaw_8000",
       "keywords": [
-        "Damjan", "Savić", "Savic", "Everlast", "Consulting",
-        "n8n", "Automatisierung", "KI-Agent", "Voice", "Workflow",
-        "Termin", "Rückruf", "dringend", "Angebot"
+        "Damjan",
+        "Savić",
+        "Savic",
+        "Everlast",
+        "Consulting",
+        "n8n",
+        "Automatisierung",
+        "KI-Agent",
+        "Voice",
+        "Workflow",
+        "Termin",
+        "Rückruf",
+        "dringend",
+        "Angebot"
       ]
     },
-
     "_turn": [
       "turn_timeout: Sekunden Stille, bis der Agent selbst weiterspricht.",
       "7 Sekunden klingen lang, sind am Telefon aber richtig — Menschen",
@@ -176,15 +192,18 @@
       "_turn_eagerness": "'patient' lässt den Anrufer ausreden, statt in die erste Atempause zu springen. Für ein Vorzimmer, in dem Menschen ihr Anliegen sortieren, ist das die richtige Seite des Kompromisses.",
       "turn_eagerness": "patient"
     },
-
     "conversation": {
       "text_only": false,
       "_max_duration_seconds": "Sechs Minuten reichen für jedes Vorzimmergespräch. Danach ist etwas schiefgelaufen und läuft nur noch auf die Rechnung.",
       "max_duration_seconds": 360,
-      "client_events": ["audio", "interruption", "user_transcript", "agent_response"]
+      "client_events": [
+        "audio",
+        "interruption",
+        "user_transcript",
+        "agent_response"
+      ]
     }
   },
-
   "platform_settings": {
     "_overrides": [
       "Ohne diese Freigaben ignoriert ElevenLabs stillschweigend alles, was",
@@ -200,13 +219,18 @@
         "agent": {
           "first_message": true,
           "language": false,
-          "prompt": { "prompt": false }
+          "prompt": {
+            "prompt": false
+          }
         },
-        "tts": { "voice_id": false },
-        "conversation": { "text_only": false }
+        "tts": {
+          "voice_id": false
+        },
+        "conversation": {
+          "text_only": false
+        }
       }
     },
-
     "_call_limits": [
       "bursting_enabled ist bei ElevenLabs standardmäßig AN und rechnet",
       "Überschussanrufe zum doppelten Minutenpreis ab. Für ein privates",
@@ -218,7 +242,6 @@
       "daily_limit": 100,
       "bursting_enabled": false
     },
-
     "_data_collection": "Felder, die ElevenLabs selbst aus dem Transkript zieht. Doppelt gemoppelt zu notiz_anlegen, aber unabhängig davon — falls der Agent das Werkzeug einmal vergisst, steht es wenigstens hier.",
     "data_collection": {
       "anliegen": {
@@ -240,9 +263,12 @@
       "rueckruf_erwuenscht": {
         "type": "boolean",
         "description": "Möchte der Anrufer zurückgerufen werden?"
+      },
+      "hat_durchgestellt": {
+        "type": "boolean",
+        "description": "Hat der Agent den Anruf an einen Menschen durchgestellt (Werkzeug transfer_to_number)?"
       }
     },
-
     "evaluation": {
       "criteria": [
         {
@@ -261,13 +287,12 @@
           "conversation_goal_prompt": "Hat der Agent Preise, Zusagen, Termine oder Fähigkeiten erfunden, die nicht aus der Wissensbasis oder einem Werkzeugergebnis stammen? Erfolg = nein, er hat nichts erfunden."
         },
         {
-          "id": "modus_eingehalten",
-          "name": "Modus eingehalten",
-          "conversation_goal_prompt": "Hat der Agent die Regeln seines Betriebsmodus befolgt? Im Modus 'nur_notiz' und 'aus' darf er unter keinen Umständen durchgestellt haben; im Modus 'aus' darf er keine Termine angeboten haben."
+          "id": "durchstellen_regelkonform",
+          "name": "Durchstellen regelkonform",
+          "conversation_goal_prompt": "Wurde in diesem Gespräch durchgestellt (Werkzeug transfer_to_number)? Falls NEIN: Kriterium erfüllt. Falls JA: Prüfe, ob der Agent im Gesprächsverlauf einen Grund erkennen ließ, der Durchstellen rechtfertigt — etwas zeitkritisches, das sich weder mit einer Notiz noch mit einem Termin lösen lässt. Ein Verkaufsanruf, eine Bewerbung, eine allgemeine Frage oder etwas, das auch morgen ginge, rechtfertigt es nicht."
         }
       ]
     },
-
     "privacy": {
       "_kommentar": "Aufzeichnung bleibt an — ohne Audio gibt es keine brauchbare Nachbereitung und keine Fehlersuche. Die Aufbewahrung ist begrenzt.",
       "retention_days": 90,

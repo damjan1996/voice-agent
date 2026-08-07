@@ -490,20 +490,25 @@ async function agentSicherstellen(env, zustand, { toolIds, wissen }) {
   schritt('Agent');
 
   const roh = JSON.parse(await readFile(path.join(WURZEL, 'elevenlabs', 'agent.config.json'), 'utf8'));
-  const konfig = ersetze(ohneKommentare(roh), env, 'agent.config.json');
+  const vorlage = ohneKommentare(roh);
+
+  // Ohne Zielnummer ergibt das Durchstellen-Werkzeug keinen Sinn. Es muss
+  // WEG, bevor die Platzhalter ersetzt werden — ersetze() bricht bei einem
+  // leeren ${OWNER_PHONE} ab, und der Zweig unten käme nie zum Zug. Ohne
+  // OWNER_PHONE ließe sich der Agent sonst überhaupt nicht anlegen, obwohl
+  // der Code diesen Fall ausdrücklich vorsieht.
+  if (!env.OWNER_PHONE) {
+    delete vorlage.conversation_config.agent.prompt.built_in_tools.transfer_to_number;
+    warn('OWNER_PHONE ist nicht gesetzt — Durchstellen ist deaktiviert.');
+  }
+
+  const konfig = ersetze(vorlage, env, 'agent.config.json');
 
   konfig.conversation_config.agent.prompt.prompt = promptAufbereiten(
     await readFile(path.join(WURZEL, 'elevenlabs', 'prompts', 'system-prompt.md'), 'utf8'),
   );
   konfig.conversation_config.agent.prompt.tool_ids = toolIds;
   konfig.conversation_config.agent.prompt.knowledge_base = wissen;
-
-  // Ohne Zielnummer ergibt das Durchstellen-Werkzeug keinen Sinn. Es dann
-  // wegzulassen ist ehrlicher, als es mit einem leeren Ziel anzulegen.
-  if (!env.OWNER_PHONE) {
-    delete konfig.conversation_config.agent.prompt.built_in_tools.transfer_to_number;
-    warn('OWNER_PHONE ist nicht gesetzt — Durchstellen ist deaktiviert.');
-  }
 
   const agentId = zustand.agent_id || env.ELEVENLABS_AGENT_ID;
 

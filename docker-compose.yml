@@ -42,7 +42,10 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5435}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-voiceagent} -d ${DB_NAME:-voiceagent}"]
+      # pg_isready allein meldet schon Bereitschaft, während initdb die
+      # Migrationen noch abarbeitet — db-init startete dann zu früh. Eine
+      # echte Abfrage wartet, bis der Server wirklich Anfragen beantwortet.
+      test: ["CMD-SHELL", "psql -U ${DB_USER:-voiceagent} -d ${DB_NAME:-voiceagent} -c 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 10

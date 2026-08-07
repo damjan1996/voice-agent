@@ -535,6 +535,7 @@ router.get('/faehigkeiten', asyncH(async (req, res) => {
       { befehl: '/termine', wirkung: 'Anstehende Termine, die der Agent vereinbart hat.' },
       { befehl: '/flows', wirkung: 'Die n8n-Workflows dieses Projekts und ihr Zustand.' },
       { befehl: '/kontakt <nummer> <name>', wirkung: 'Anrufer benennen, damit der Agent sie erkennt.' },
+      { befehl: '/sperre <von> bis <bis>', wirkung: 'Zeitraum sperren, in dem keine Termine vergeben werden.' },
     ],
     workflows: u.eintraege,
   });

@@ -263,6 +263,7 @@ function platzhalterErsetzen(text, env, fehlerWorkflowId) {
     __VOICE_TOKEN__: env.VOICE_WEBHOOK_TOKEN ?? '',
     __KALENDER_IDS__: env.GOOGLE_KALENDER_IDS || env.GOOGLE_KALENDER_PRIMAER || '',
     __KALENDER_PRIMAER__: env.GOOGLE_KALENDER_PRIMAER || '',
+    __VORLAUF_STUNDEN__: env.TERMIN_VORLAUF_STUNDEN || '3',
     voiceagent90fehler: fehlerWorkflowId ?? '',
   };
 
