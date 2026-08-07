@@ -54,6 +54,12 @@ kann ELEVENLABS_AGENT_ID  "entsteht bei: make agent"
 kann ELEVENLABS_WEBHOOK_SECRET "wird bei 'make agent' einmalig ausgegeben"
 kann GOOGLE_KALENDER_PRIMAER   "ohne ihn kann der Agent keine Termine vergeben"
 
+if [[ -f google-service-account.json ]]; then
+  ok "Google-Dienstkonto hinterlegt"
+else
+  warn "kein Google-Kalenderzugang" "node scripts/google-kalender.mjs"
+fi
+
 if [[ "${GOOGLE_KALENDER_PRIMAER:-}" == "primary" ]]; then
   bad "GOOGLE_KALENDER_PRIMAER steht auf 'primary'" \
       "Bei einem Dienstkonto zeigt 'primary' auf dessen leeren Kalender. Der Agent hielte dann alles für frei und würde in bestehende Termine buchen. Echte Kalender-ID eintragen (meist die E-Mail-Adresse)."

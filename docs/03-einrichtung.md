@@ -93,68 +93,76 @@ Route einzuhängen.
 
 ## 6 · Google-Kalender
 
-Hier gibt es zwei Wege mit einem echten Zielkonflikt.
-
-### Weg A · OAuth2 (empfohlen)
-
-Kann Teilnehmer zu Terminen einladen. Braucht einmal einen Klick im Browser.
-
-1. [Google Cloud Console](https://console.cloud.google.com) → Projekt anlegen
-2. **APIs & Services → Library → Google Calendar API** aktivieren
-3. **Credentials → Create Credentials → OAuth client ID → Web application**
-4. Als *Authorized redirect URI* eintragen, was n8n im Credential-Dialog
-   anzeigt (`https://<domain>/rest/oauth2-credential/callback`)
-5. **OAuth consent screen → PUBLISH APP**
-
-> Schritt 5 ist der wichtigste. Bleibt der Zustimmungsbildschirm auf
-> „Testing", widerruft Google das Refresh-Token nach **genau 7 Tagen**. Der
-> Kalender funktioniert dann eine Woche und stirbt still. Die Warnung
-> „Google hasn't verified this app" beim Verbinden ist unerheblich —
-> „Advanced → Go to app" anklicken.
-
-6. In n8n: **Credentials → New → Google Calendar OAuth2 API**, Client ID und
-   Secret eintragen, verbinden
-7. Das Credential in den Nodes „Google: belegte Zeiten" (Workflow 20) und
-   „Google: Termin anlegen" (Workflow 30) auswählen
-
-### Weg B · Dienstkonto (headless)
-
-Keine Klicks, kein Token, das abläuft. Kann dafür **keine Teilnehmer
-einladen** — Google lehnt das für Dienstkonten ohne Domain-Wide Delegation
-ab, und die gibt es bei privaten Konten nicht.
-
-1. Cloud Console → **Service Account** anlegen, JSON-Schlüssel laden
-2. Google Calendar API aktivieren
-3. Im Google Kalender: Einstellungen des Kalenders → **„Für bestimmte
-   Personen freigeben"** → die `…@….iam.gserviceaccount.com`-Adresse
-   hinzufügen, Rolle **„Termine ändern"**
-4. In n8n: **Credentials → New → Google Service Account API**, JSON
-   einfügen, *„Set up for use in HTTP Request node"* aktivieren, Scope
-   `https://www.googleapis.com/auth/calendar`
-5. In beiden Google-Nodes `nodeCredentialType` von
-   `googleCalendarOAuth2Api` auf `googleApi` umstellen
-
-> Das Dienstkonto bekommt keine Einladungsmail und kann nichts bestätigen —
-> es braucht auch nichts zu bestätigen, die Freigabe wirkt sofort. Aber:
-> `calendarList` bleibt für das Dienstkonto **leer**. Die Kalender-ID muss
-> deshalb fest in der `.env` stehen.
-
-### In beiden Fällen
-
 ```bash
-GOOGLE_KALENDER_PRIMAER=info@damjan-savic.com
-GOOGLE_KALENDER_IDS=info@damjan-savic.com,arbeit@firma.de
+node scripts/google-kalender.mjs
 ```
 
-`GOOGLE_KALENDER_IDS` sind alle Kalender, die für „belegt" zählen.
-`GOOGLE_KALENDER_PRIMAER` ist der, in den eingetragen wird.
+Zeigt die vier Schritte, die in der Google Cloud Console zu klicken sind.
+Danach:
+
+```bash
+node scripts/google-kalender.mjs ~/voice-agent-xxxxx.json
+```
+
+Das Skript prüft zuerst mit einer echten Abfrage, ob der Kalender antwortet,
+und richtet erst dann ein: Zugangsdaten in n8n, `.env`, Workflows. Schlägt die
+Prüfung fehl, bleibt alles unverändert und es sagt, welcher Schritt fehlt.
+
+### Warum ein Dienstkonto und nicht OAuth2
+
+Zwei Gründe, der erste ist praktisch zwingend:
+
+**OAuth2 braucht eine erreichbare Domain.** Der Rückleit-URI lautet
+`https://<domain>/rest/oauth2-credential/callback`. Solange DNS und
+Zertifikat fehlen, lässt sich die Verbindung gar nicht erst herstellen.
+
+**Und OAuth2 verfällt.** Steht der Zustimmungsbildschirm auf „Testing",
+widerruft Google das Refresh-Token nach **genau sieben Tagen**. Der Kalender
+funktioniert dann eine Woche und stirbt still — der Agent sagt ab da bei
+jedem Terminwunsch, er komme nicht an den Kalender. Wer OAuth2 will, muss den
+Bildschirm auf *In Production* veröffentlichen.
+
+Das Dienstkonto hat dafür eine echte Einschränkung: **Es kann keine
+Kalendereinladungen an Anrufer verschicken.** Google verbietet das ohne
+Domain-Weite Delegation, die es bei privaten Konten nicht gibt. Die
+Kontaktdaten des Anrufers stehen deshalb in der Terminbeschreibung, und die
+Bestätigung geht per WhatsApp an dich statt per Einladung an ihn.
+
+Für ein Vorzimmer ist das der bessere Handel: Ein Zugang, der nie abläuft und
+keinen Browser braucht, gegen eine Einladung, die ohnehin niemand erwartet,
+wenn er gerade telefoniert hat.
+
+### Auf OAuth2 wechseln
+
+Sobald die Domain steht und du Einladungen verschicken willst:
+
+1. In der Cloud Console eine *OAuth client ID* (Web application) anlegen,
+   Rückleit-URI aus dem n8n-Credential-Dialog eintragen
+2. **OAuth consent screen → PUBLISH APP** — sonst die sieben Tage
+3. In n8n: *Credentials → New → Google Calendar OAuth2 API*, verbinden
+4. In der `.env`: `GOOGLE_AUTH_METHODE=oauth2`
+5. Die ID der neuen Credential nach `n8n/.google-cred-id`
+6. `node scripts/import-n8n-workflows.mjs`
+
+Die Workflows stellen sich dann von selbst um — der Credential-Typ ist ein
+Platzhalter, der beim Import aus `GOOGLE_AUTH_METHODE` gesetzt wird.
+
+### Welche Kalender
+
+```bash
+GOOGLE_KALENDER_PRIMAER=damjandak@gmail.com          # hier wird eingetragen
+GOOGLE_KALENDER_IDS=damjandak@gmail.com,arbeit@…     # das zählt als belegt
+```
 
 > **Nie `primary` eintragen.** Bei einem Dienstkonto zeigt das auf dessen
-> eigenen, leeren Kalender. Die Abfrage meldet dann fröhlich „alles frei",
-> und der Agent bucht mitten in bestehende Termine. `make pruefen` schlägt
-> darauf an.
+> eigenen, leeren Kalender. Die Abfrage meldete dann „alles frei", und der
+> Agent bucht mitten in bestehende Termine. `make pruefen` schlägt darauf an.
 
-Nach jeder Änderung: `make import`.
+Prüfen, wann immer etwas unklar ist:
+
+```bash
+node scripts/google-kalender.mjs --pruefen
+```
 
 ## 7 · nginx und Zertifikat
 

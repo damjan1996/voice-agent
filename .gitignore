@@ -28,3 +28,7 @@ npm-debug.log*
 .tmp/
 n8n/.credential-id
 n8n/.anthropic-cred-id
+
+# Google-Dienstkonto
+google-service-account.json
+n8n/.google-cred-id

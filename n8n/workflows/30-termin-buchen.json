@@ -100,7 +100,7 @@
         "method": "POST",
         "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ encodeURIComponent('__KALENDER_PRIMAER__') }}/events?sendUpdates=none",
         "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "nodeCredentialType": "__GOOGLE_CRED_TYPE__",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({\n  summary: 'Telefonat: ' + ($('Agent bucht').item.json.body.name || 'Unbekannt'),\n  description: [\n    'Vereinbart vom Voice-Agent.',\n    '',\n    'Thema: ' + ($('Agent bucht').item.json.body.thema || '—'),\n    'Firma: ' + ($('Agent bucht').item.json.body.firma || '—'),\n    'Telefon: ' + ($('Agent bucht').item.json.body.telefon || $('Agent bucht').item.json.body.anrufer_nummer || '—'),\n    'E-Mail: ' + ($('Agent bucht').item.json.body.email || '—'),\n  ].join('\\n'),\n  start: { dateTime: $json.body.start, timeZone: 'Europe/Berlin' },\n  end: { dateTime: new Date(new Date($json.body.start).getTime() + (($('Agent bucht').item.json.body.dauer_minuten || 30) * 60000)).toISOString(), timeZone: 'Europe/Berlin' },\n  reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }] },\n  extendedProperties: { private: {\n    quelle: 'voice-agent',\n    buchung_id: String($json.body.buchung_id),\n    conversation_id: $('Agent bucht').item.json.body.conversation_id || '',\n  } },\n}) }}",

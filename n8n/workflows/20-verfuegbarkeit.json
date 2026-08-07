@@ -84,7 +84,7 @@
         "method": "POST",
         "url": "https://www.googleapis.com/calendar/v3/freeBusy",
         "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "nodeCredentialType": "__GOOGLE_CRED_TYPE__",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ timeMin: $('Suchfenster').item.json.ab, timeMax: $('Suchfenster').item.json.bis, timeZone: 'Europe/Berlin', items: '__KALENDER_IDS__'.split(',').map(id => ({ id: id.trim() })) }) }}",
@@ -107,7 +107,7 @@
         110
       ],
       "onError": "continueRegularOutput",
-      "notes": "onError: continueRegularOutput ist hier wichtig.\n\n'neverError' in den Optionen fängt nur HTTP-Fehlercodes ab. Fehlen die\nZugangsdaten ganz — etwa vor der Ersteinrichtung — wirft der Node schon\nvor der Anfrage ('Credentials not found'), und ohne diese Zeile stirbt der\nganze Workflow. Der Agent bekäme dann mitten im Gespräch einen\nWerkzeugfehler statt der ehrlichen Auskunft, dass der Kalender gerade\nnicht erreichbar ist.\n\nZugangsdaten hängen an diesem Node, nicht im Repo.\n\nEs gibt zwei Wege, siehe docs/03-einrichtung.md:\n  OAuth2 (googleCalendarOAuth2Api) — kann Teilnehmer einladen, muss aber\n    einmal interaktiv bestätigt werden. Der Zustimmungsbildschirm MUSS auf\n    'In Production' stehen, sonst verfällt das Refresh-Token nach 7 Tagen.\n  Service Account (googleApi) — komplett ohne Klicks, kann dafür keine\n    Teilnehmer einladen. Dann nodeCredentialType auf googleApi stellen.\n\nneverError: fällt Google aus, soll der Agent das sagen können statt zu\nschweigen."
+      "notes": "onError: continueRegularOutput ist hier wichtig.\n\n'neverError' in den Optionen fängt nur HTTP-Fehlercodes ab. Fehlen die\nZugangsdaten ganz — etwa vor der Ersteinrichtung — wirft der Node schon\nvor der Anfrage ('Credentials not found'), und ohne diese Zeile stirbt der\nganze Workflow. Der Agent bekäme dann mitten im Gespräch einen\nWerkzeugfehler statt der ehrlichen Auskunft, dass der Kalender gerade\nnicht erreichbar ist.\n\nZugangsdaten hängen an diesem Node, nicht im Repo.\n\nDer Typ kommt aus GOOGLE_AUTH_METHODE in der .env. Zwei Wege:\n  OAuth2 (googleCalendarOAuth2Api) — kann Teilnehmer einladen, muss aber\n    einmal interaktiv bestätigt werden. Der Zustimmungsbildschirm MUSS auf\n    'In Production' stehen, sonst verfällt das Refresh-Token nach 7 Tagen.\n  Service Account (googleApi) — komplett ohne Klicks, kann dafür keine\n    Teilnehmer einladen. Dann nodeCredentialType auf googleApi stellen.\n\nneverError: fällt Google aus, soll der Agent das sagen können statt zu\nschweigen."
     },
     {
       "parameters": {

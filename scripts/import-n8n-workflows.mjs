@@ -224,7 +224,19 @@ async function zugangsdatenSicherstellen(env) {
     zweck: 'Ohne sie kann die Nachbereitung Gespräche nicht zusammenfassen.',
   });
 
-  return { webhook, anthropic };
+  // Die Google-Zugangsdaten legt scripts/google-kalender.mjs an — dort, wo
+  // auch der Schlüssel geprüft wird. Hier wird die ID nur nachgeschlagen.
+  const merk = path.join(WURZEL, 'n8n', '.google-cred-id');
+  let google = null;
+  if (existsSync(merk)) {
+    google = (await readFile(merk, 'utf8')).trim() || null;
+    if (google) info(`Google-Kalender-Zugang vorhanden (${google})`);
+  } else {
+    warn('Kein Google-Kalender-Zugang — der Agent kann keine Termine vergeben.');
+    warn('  Einrichten: node scripts/google-kalender.mjs');
+  }
+
+  return { webhook, anthropic, google };
 }
 
 /**
@@ -236,7 +248,7 @@ async function zugangsdatenSicherstellen(env) {
  *                  Nachbereitung still — der Anruf steht in der Datenbank,
  *                  aber ohne Zusammenfassung.
  */
-function zugangsdatenAnhaengen(workflow, { webhook, anthropic }) {
+function zugangsdatenAnhaengen(workflow, { webhook, anthropic, google }) {
   for (const node of workflow.nodes) {
     if (node.type === 'n8n-nodes-base.webhook' && webhook) {
       node.parameters = { ...node.parameters, authentication: 'headerAuth' };
@@ -252,6 +264,17 @@ function zugangsdatenAnhaengen(workflow, { webhook, anthropic }) {
         httpHeaderAuth: { id: anthropic, name: 'Anthropic (Voice-Agent)' },
       };
     }
+
+    if (google && node.parameters?.url?.includes('googleapis.com')) {
+      const typ = node.parameters.nodeCredentialType;
+      node.credentials = {
+        ...node.credentials,
+        [typ]: {
+          id: google,
+          name: typ === 'googleApi' ? 'Google Kalender (Dienstkonto)' : 'Google Kalender (OAuth2)',
+        },
+      };
+    }
   }
   return workflow;
 }
@@ -264,6 +287,11 @@ function platzhalterErsetzen(text, env, fehlerWorkflowId) {
     __KALENDER_IDS__: env.GOOGLE_KALENDER_IDS || env.GOOGLE_KALENDER_PRIMAER || '',
     __KALENDER_PRIMAER__: env.GOOGLE_KALENDER_PRIMAER || '',
     __VORLAUF_STUNDEN__: env.TERMIN_VORLAUF_STUNDEN || '3',
+    // Dienstkonto läuft headless und läuft nie ab; OAuth2 kann dafür
+    // Kalendereinladungen an Anrufer verschicken. Siehe docs/03-einrichtung.md.
+    __GOOGLE_CRED_TYPE__: (env.GOOGLE_AUTH_METHODE || 'dienstkonto') === 'oauth2'
+      ? 'googleCalendarOAuth2Api'
+      : 'googleApi',
     voiceagent90fehler: fehlerWorkflowId ?? '',
   };
 

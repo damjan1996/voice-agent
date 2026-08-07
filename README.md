@@ -103,9 +103,10 @@ make test-anruf        # Probelauf ohne zu telefonieren
 
 Dann noch:
 
-1. **nginx und Zertifikat** — `deploy/nginx/voice-agent.conf`
-2. **Rufnummer verbinden** — `node scripts/telefonnummer.mjs --hilfe`
-3. **WhatsApp-Bot anbinden** — `integration/whatsapp-bot/EINBAU.md`
+1. **Google-Kalender** — `node scripts/google-kalender.mjs`
+2. **nginx und Zertifikat** — `deploy/nginx/voice-agent.conf`
+3. **Rufnummer verbinden** — `node scripts/telefonnummer.mjs --hilfe`
+4. **WhatsApp-Bot anbinden** — `integration/whatsapp-bot/EINBAU.md`
 
 Ausführlich: **[docs/03-einrichtung.md](docs/03-einrichtung.md)**
 
