@@ -152,10 +152,23 @@ if [[ -n "${N8N_DOMAIN:-}" ]]; then
   else
     ok "$N8N_DOMAIN → $aufgeloest"
   fi
-  if [[ -f "/etc/letsencrypt/live/$N8N_DOMAIN/fullchain.pem" ]]; then
-    ok "TLS-Zertifikat vorhanden"
+  # Nicht die Datei in /etc/letsencrypt/live/ prüfen — die ist nur für root
+  # lesbar, und dieses Skript läuft als normaler Benutzer. Es meldete
+  # deshalb "kein Zertifikat", während längst eines ausgeliefert wurde.
+  # Was zählt, ist ohnehin nicht die Datei, sondern was am Port ankommt.
+  zert=$(echo | timeout 15 openssl s_client -servername "$N8N_DOMAIN" \
+         -connect "$N8N_DOMAIN:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null)
+
+  if [[ -n "$zert" ]]; then
+    bis="${zert#notAfter=}"
+    tage=$(( ($(date -d "$bis" +%s 2>/dev/null || echo 0) - $(date +%s)) / 86400 ))
+    if   (( tage > 21 )); then ok "TLS-Zertifikat gültig, noch $tage Tage"
+    elif (( tage > 0 ));  then warn "TLS-Zertifikat läuft in $tage Tagen ab" "sudo certbot renew"
+    else                       bad "TLS-Zertifikat ist abgelaufen" "sudo certbot renew --force-renewal"
+    fi
   else
-    warn "kein Zertifikat für $N8N_DOMAIN" "sudo certbot --nginx -d $N8N_DOMAIN"
+    warn "kein gültiges Zertifikat an $N8N_DOMAIN:443" \
+         "sudo bash deploy/nginx-einrichten.sh"
   fi
 fi
 echo
