@@ -78,18 +78,27 @@ Drei Fälle, in denen es trotzdem schiefgeht:
 
 ## Welcher Anbieter?
 
-### sipgate trunking — empfohlen
+### Telnyx — empfohlen für Privatpersonen
+
+Der einzige Anbieter, der deutschen **Privatpersonen ohne Gewerbe** eine
+Ortsnetznummer samt Trunk gibt. Ausweis, Adressnachweis, Formular, rund
+72 Stunden, ab 1 $/Monat. ElevenLabs hat eine eigene Anleitung dafür.
+
+Schritt für Schritt: [06-rufnummer-telnyx.md](06-rufnummer-telnyx.md)
+
+### sipgate trunking — nur mit Gewerbe
 
 Deutscher Anbieter, deutsche Rechnung, Freischaltung in Stunden statt Tagen,
 30 Tage Test mit fünf kostenlosen Nummern. Danach ab 11,84 €/Monat.
 
-Der Weg ist kurz: Origination-URI beim Anbieter auf
-`sip:sip.rtc.elevenlabs.io:5060;transport=tcp`, Digest-Auth einschalten,
-fertig. Kein Umweg über die USA, keine Regulierungsprüfung.
+**Privatkunden bekommen das nicht.** sipgate verweist sie auf *Satellite* —
+eine reine App ohne SIP-Zugangsdaten, aus deren Hilfe: „Auf anderen
+VoIP-Clients wie Zoiper kannst du satellite nicht nutzen." Damit lässt sich
+nichts an ElevenLabs anbinden.
 
-*Einschränkung:* Warme Übergabe (der Agent sagt dir vorab, wer dran ist) und
-`post_dial_digits` gibt es nur bei Twilio. Für ein privates Vorzimmer ist das
-verzichtbar.
+Mit einem Gewerbe ist der Weg kurz: Origination-URI auf
+`sip:sip.rtc.elevenlabs.io:5060;transport=tcp`, Digest-Auth einschalten,
+fertig.
 
 ### Twilio — nur mit Gewerbe
 
@@ -112,11 +121,20 @@ deine Handynummer.
 > Gespräch fehlschlagen, weil ElevenLabs dann gegen die falsche Region
 > spricht.
 
-### Telnyx
+### easybell und dus.net — nur mit eigener Brücke
 
-Erlaubt im Gegensatz zu Twilio auch Privatpersonen (Ausweis plus
-Adressnachweis, nicht älter als drei Monate). Aktivierung etwa 72 Stunden.
-Von ElevenLabs offiziell als Trunk-Anbieter dokumentiert.
+Beide verkaufen an Privatkunden und geben SIP-Zugangsdaten heraus (easybell
+ab 0,99 €/Monat, dus.net rund 5 €/Jahr für die Nummer). Der Haken ist
+grundsätzlich: Ein Privatkunden-Anschluss ist ein SIP-*Client*, der sich beim
+Anbieter anmeldet. Ein eigenes Weiterleitungsziel lässt sich nicht setzen —
+genau das bräuchte ElevenLabs. Bei easybell sind die dafür nötigen Funktionen
+*Trusted IP* und *FQDN-Authentifizierung* ausdrücklich „nur in unseren
+Business-Tarifen verfügbar".
+
+Nutzbar wären sie mit einem eigenen Asterisk auf diesem Server, der sich dort
+registriert und Anrufe an ElevenLabs weiterreicht — sipgate hat dafür einen
+[fertigen Container](https://github.com/sipgate/sip-bridge) veröffentlicht.
+Der Preis: SIP-Ports offen im Netz, und danach suchen Scanner rund um die Uhr.
 
 ## Rufumleitung einrichten
 

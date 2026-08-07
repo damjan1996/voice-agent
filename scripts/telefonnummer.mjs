@@ -44,30 +44,35 @@ eine Zweitnummer, und dein Handy leitet bedingt dorthin um. Für den Anrufer
 sieht es aus, als ginge der Agent auf deiner Nummer ran: Er wählt weiterhin
 nur diese eine Nummer.
 
-${c(1, 'Weg A — SIP-Trunk (empfohlen für Deutschland)')}
+${c(1, 'Weg A — Telnyx (empfohlen, geht auch ohne Gewerbe)')}
 
-  1. Bei sipgate trunking anmelden (30 Tage Test, danach ab 11,84 €/Monat)
-     und eine Ortsnetznummer buchen.
+  Ausführlich mit allen Feldern: ${c(36, 'docs/06-rufnummer-telnyx.md')}
 
-  2. Im sipgate-Portal als Origination-URI eintragen:
-       ${c(36, 'sip:sip.rtc.elevenlabs.io:5060;transport=tcp')}
-     Digest-Auth aktivieren (Benutzername und Passwort vergeben).
-     ${c(90, 'IP-Allowlisting funktioniert hier NICHT — ElevenLabs bedient SIP')}
-     ${c(90, 'aus wechselnden Adressen. Digest-Auth ist der vorgesehene Weg.')}
+  1. Bei telnyx.com anmelden, unter Numbers eine deutsche Ortsnetznummer
+     kaufen. Die Vorwahl muss zu deiner Adresse passen.
+     Nachweise: Ausweis, Adressnachweis (< 3 Monate), Formular.
+     Freischaltung rund 72 Stunden. Ab 1 $/Monat.
 
-  3. „Rufnummernübermittlung" / CLI-Passthrough aktivieren, damit der Agent
-     die Nummer des echten Anrufers sieht und nicht deine.
+  2. Voice → SIP Connections → Create, Typ ${c(1, 'FQDN')}.
+     Inbound:  Destination Number Format ${c(36, '+E.164')}, Transport ${c(36, 'TCP')}
+     Outbound: Authentication ${c(36, 'Credentials')}, FQDN ${c(36, 'sip.rtc.elevenlabs.io')}
+     ${c(90, 'Eingehend nutzt Telnyx keine Digest-Auth — dort keine Zugangsdaten.')}
+
+  3. Die Nummer dieser Verbindung zuweisen, Outbound Voice Profile anlegen.
 
   4. In die .env:
        TELEFON_ANBIETER=sip_trunk
-       AGENT_PHONE_NUMBER=+49...      ${c(90, '(die neue Nummer)')}
-       SIP_BENUTZER=...
+       AGENT_PHONE_NUMBER=+49221...   ${c(90, '(die neue Nummer)')}
+       SIP_BENUTZER=...               ${c(90, '(aus Schritt 2, Outbound)')}
        SIP_PASSWORT=...
-       SIP_ADRESSE=sipgate.de         ${c(90, 'reiner Hostname, OHNE "sip:"')}
+       SIP_ADRESSE=sip.telnyx.com     ${c(90, 'reiner Hostname, OHNE "sip:"')}
 
   5. Dieses Skript laufen lassen.
 
-${c(1, 'Weg B — Twilio')}
+  ${c(90, 'Warum nicht sipgate: Trunking ist dort Geschäftskunden vorbehalten.')}
+  ${c(90, 'Privatkunden bekommen "Satellite" — eine App ohne SIP-Zugang.')}
+
+${c(1, 'Weg B — Twilio (nur mit Gewerbe)')}
 
   Setzt eine Gewerbeanmeldung oder einen Handelsregisterauszug voraus; die
   Adresse muss zum Vorwahlgebiet der Nummer passen. Prüfung 1–3 Werktage.

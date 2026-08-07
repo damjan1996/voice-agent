@@ -105,7 +105,7 @@ Dann noch:
 
 1. **Google-Kalender** — `node scripts/google-kalender.mjs`
 2. **nginx und Zertifikat** — `deploy/nginx/voice-agent.conf`
-3. **Rufnummer verbinden** — `node scripts/telefonnummer.mjs --hilfe`
+3. **Rufnummer verbinden** — [docs/06-rufnummer-telnyx.md](docs/06-rufnummer-telnyx.md)
 4. **WhatsApp-Bot anbinden** — `integration/whatsapp-bot/EINBAU.md`
 
 Ausführlich: **[docs/03-einrichtung.md](docs/03-einrichtung.md)**
