@@ -1,0 +1,219 @@
+# =============================================================================
+#  Voice-Agent — Laufzeitumgebung
+# =============================================================================
+#  Eine eigene n8n-Instanz und eine eigene Datenbank, bewusst getrennt von der
+#  n8n-Instanz des Hörakustik-Projekts auf Port 5678. Gründe:
+#
+#    * Diese Instanz braucht die Public API (Import und Schalten von Workflows
+#      per Skript). Dort ist sie mit Absicht aus.
+#    * Ein Neustart wegen des privaten Agents darf keine Kundendemo abwürgen.
+#    * Getrennte Verschlüsselungsschlüssel, getrennte Datenhaltung.
+#
+#  Alle Ports sind an 127.0.0.1 gebunden. Von außen erreichbar ist
+#  ausschließlich das, was nginx durchreicht — siehe deploy/nginx/.
+# =============================================================================
+
+name: voiceagent
+
+services:
+
+  # ---------------------------------------------------------------------------
+  #  Datenbank
+  # ---------------------------------------------------------------------------
+  #  Trägt zwei Dinge: das Schema "voice" (Anrufe, Modus, Kontakte) und die
+  #  eigene Datenbank von n8n. Zwei Datenbanken in einem Server, damit ein
+  #  n8n-Upgrade nie die Anrufhistorie anfasst.
+  postgres:
+    image: postgres:16-alpine
+    container_name: voiceagent-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-voiceagent}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+      POSTGRES_DB: ${DB_NAME:-voiceagent}
+      # Sorgt dafür, dass Zeitstempel in psql-Sitzungen deutsch lesbar sind.
+      TZ: ${TZ:-Europe/Berlin}
+      PGTZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Migrationen laufen beim ERSTEN Start automatisch. Danach nur noch über
+      # "make migrate" — initdb.d wird bei bestehendem Volume ignoriert.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${DB_PORT:-5435}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-voiceagent} -d ${DB_NAME:-voiceagent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - internal
+
+  # n8n verlangt eine eigene Datenbank. Dieser Einmal-Container legt sie an,
+  # falls sie fehlt, und beendet sich. Der n8n-Start hängt weiter unten über
+  # "service_completed_successfully" daran.
+  #
+  #  Warum nicht per Skript in docker-entrypoint-initdb.d? Weil das nur beim
+  #  allerersten Anlegen des Volumes läuft. Bei einem Volume, das schon steht
+  #  — etwa nach einem Wiederherstellen aus dem Backup — wäre die n8n-Datenbank
+  #  dann still weg. Dieser Container prüft bei jedem Hochfahren.
+  db-init:
+    image: postgres:16-alpine
+    container_name: voiceagent-db-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USER:-voiceagent}
+      PGDATABASE: ${DB_NAME:-voiceagent}
+      PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'n8n'")" = "1" ]; then
+          echo "Datenbank n8n vorhanden"
+        else
+          echo "lege Datenbank n8n an"
+          psql -c "CREATE DATABASE n8n"
+        fi
+    networks:
+      - internal
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  #  n8n — die Automatisierungsschicht
+  # ---------------------------------------------------------------------------
+  #  Hier laufen die Workflows, die ElevenLabs während und nach einem Anruf
+  #  aufruft: Modus abfragen, Kalender lesen, Termin buchen, Nachricht
+  #  weiterreichen, Gespräch nachbereiten.
+  n8n:
+    image: n8nio/n8n:${N8N_VERSION:-2.32.6}
+    container_name: voiceagent-n8n
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      # --- Datenbank ---
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${DB_USER:-voiceagent}
+      DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+
+      # --- Adressen ---
+      #  WEBHOOK_URL muss die öffentliche Adresse sein, sonst baut n8n in der
+      #  Oberfläche Webhook-URLs zusammen, die ElevenLabs nicht erreicht.
+      N8N_HOST: ${N8N_DOMAIN:-voice.damjan-savic.com}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN:-voice.damjan-savic.com}/
+      WEBHOOK_URL: https://${N8N_DOMAIN:-voice.damjan-savic.com}/
+      N8N_PROXY_HOPS: 1
+      N8N_SECURE_COOKIE: "true"
+
+      # --- Public API ---
+      #  Ausdrücklich AN. scripts/import-n8n-workflows.mjs und die Control-API
+      #  brauchen sie zum Importieren und Schalten von Workflows.
+      N8N_PUBLIC_API_DISABLED: "false"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
+
+      # --- Betrieb ---
+      GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}
+      TZ: ${TZ:-Europe/Berlin}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY fehlt in .env}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL:-info}
+      N8N_LOG_OUTPUT: console
+      N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+
+      # Aufräumen: Ausführungen älter als 14 Tage fliegen raus. Anrufdaten
+      # liegen im Schema "voice" und sind davon nicht betroffen.
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 336
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+
+      # Der Code-Node darf die Postgres-Bibliothek laden — mehr nicht.
+      NODE_FUNCTION_ALLOW_EXTERNAL: ${N8N_ALLOW_EXTERNAL_MODULES:-}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "127.0.0.1:${N8N_LOCAL_PORT:-5679}:5678"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------------------
+  #  Control-API — der Schalter
+  # ---------------------------------------------------------------------------
+  #  Kleiner HTTP-Dienst, über den der WhatsApp-Bot den Agent umschaltet und
+  #  den Zustand abfragt. Bewusst kein n8n-Workflow: Der Schalter muss auch
+  #  dann funktionieren, wenn in n8n etwas klemmt.
+  control-api:
+    build:
+      context: ./control-api
+      dockerfile: Dockerfile
+    container_name: voiceagent-control
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3010
+      TZ: ${TZ:-Europe/Berlin}
+      DATABASE_URL: postgres://${DB_USER:-voiceagent}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-voiceagent}
+      # Für den WhatsApp-Bot und das CLI.
+      CONTROL_API_TOKEN: ${CONTROL_API_TOKEN:?CONTROL_API_TOKEN fehlt in .env}
+      # Für n8n und die ElevenLabs-Werkzeuge — bewusst ein anderer Token:
+      # Wer Anrufe schreiben darf, muss nicht den Betriebsmodus umstellen dürfen.
+      VOICE_WEBHOOK_TOKEN: ${VOICE_WEBHOOK_TOKEN:?VOICE_WEBHOOK_TOKEN fehlt in .env}
+      # HMAC-Geheimnis des Post-Call-Webhooks. Fehlt es, werden Post-Call-
+      # Aufrufe abgewiesen — der Agent funktioniert, aber ohne Nachbereitung.
+      ELEVENLABS_WEBHOOK_SECRET: ${ELEVENLABS_WEBHOOK_SECRET:-}
+
+      N8N_BASE_URL: http://n8n:5678
+      N8N_API_KEY: ${N8N_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
+      OWNER_PHONE: ${OWNER_PHONE:-}
+      TERMIN_VORLAUF_STUNDEN: ${TERMIN_VORLAUF_STUNDEN:-3}
+    ports:
+      - "127.0.0.1:${CONTROL_API_PORT:-3010}:3010"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+    name: voiceagent_postgres_data
+  n8n_data:
+    name: voiceagent_n8n_data
+
+networks:
+  internal:
+    name: voiceagent_internal

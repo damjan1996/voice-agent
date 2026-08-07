@@ -1,0 +1,270 @@
+{
+  "name": "30 · Termin buchen",
+  "description": "Trägt einen zugesagten Termin ein: erst in der Datenbank vormerken (die entscheidet bei zwei gleichzeitigen Anrufern, wer den Slot bekommt), dann in den Google-Kalender, dann Meldung an Damjan.",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 30,
+    "errorWorkflow": "voiceagent90fehler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice/termin",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a3000000-0000-4000-8000-000000000001",
+      "name": "Agent bucht",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -660,
+        0
+      ],
+      "webhookId": "b3000000-0000-4000-8000-000000000003"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__CONTROL_API__/intern/termin",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Voice-Token",
+              "value": "={{ $json.headers['x-voice-token'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 8000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "a3000000-0000-4000-8000-000000000002",
+      "name": "Slot vormerken",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        0
+      ],
+      "notes": "Zuerst die Datenbank, dann Google. Andersherum stünde bei einem\nDoppelzugriff schon ein Kalendereintrag, den niemand mehr wegräumt.\n\nDie Datenbank hat einen eindeutigen Index auf belegte Startzeiten —\nder zweite Anrufer bekommt 409 statt einer stillen Doppelbuchung."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c3000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.body.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000000-0000-4000-8000-000000000003",
+      "name": "Slot bekommen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ encodeURIComponent('__KALENDER_PRIMAER__') }}/events?sendUpdates=none",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  summary: 'Telefonat: ' + ($('Agent bucht').item.json.body.name || 'Unbekannt'),\n  description: [\n    'Vereinbart vom Voice-Agent.',\n    '',\n    'Thema: ' + ($('Agent bucht').item.json.body.thema || '—'),\n    'Firma: ' + ($('Agent bucht').item.json.body.firma || '—'),\n    'Telefon: ' + ($('Agent bucht').item.json.body.telefon || $('Agent bucht').item.json.body.anrufer_nummer || '—'),\n    'E-Mail: ' + ($('Agent bucht').item.json.body.email || '—'),\n  ].join('\\n'),\n  start: { dateTime: $json.body.start, timeZone: 'Europe/Berlin' },\n  end: { dateTime: new Date(new Date($json.body.start).getTime() + (($('Agent bucht').item.json.body.dauer_minuten || 30) * 60000)).toISOString(), timeZone: 'Europe/Berlin' },\n  reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }] },\n  extendedProperties: { private: {\n    quelle: 'voice-agent',\n    buchung_id: String($json.body.buchung_id),\n    conversation_id: $('Agent bucht').item.json.body.conversation_id || '',\n  } },\n}) }}",
+        "options": {
+          "timeout": 12000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "a3000000-0000-4000-8000-000000000004",
+      "name": "Google: Termin anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20,
+        -110
+      ],
+      "notes": "onError: continueRegularOutput — fehlen die Zugangsdaten ganz, wirft der\nNode schon vor der Anfrage. Ohne diese Zeile stürbe der Workflow, und der\nAnrufer bekäme keine Antwort, obwohl die Vormerkung längst steht.\n\nBewusst OHNE attendees: mit einem Service-Account-Zugang lehnt Google das\nEinladen von Teilnehmern ab (403 forbiddenForServiceAccounts), weil\nDomain-Wide Delegation bei privaten Google-Konten nicht möglich ist.\nDie Kontaktdaten des Anrufers stehen deshalb in der Beschreibung.\n\nWer OAuth2 nutzt, kann attendees ergänzen — dann auch sendUpdates=all.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=__CONTROL_API__/intern/termin/{{ $('Slot vormerken').item.json.body.buchung_id }}/kalender",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Voice-Token",
+              "value": "={{ $('Agent bucht').item.json.headers['x-voice-token'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event_id: $json.body?.id ?? null, link: $json.body?.htmlLink ?? null }) }}",
+        "options": {
+          "timeout": 8000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a3000000-0000-4000-8000-000000000005",
+      "name": "Kalender-ID sichern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        -110
+      ],
+      "notes": "Auch wenn Google fehlschlägt: die Vormerkung bleibt bestehen und taucht\nunter /termine als 'vorgemerkt' auf. Damjan sieht sie, der Slot ist\ngesperrt, nur der Kalendereintrag fehlt — reparierbar, nicht verloren."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Antwort für den Agent. Er liest 'bestaetigung' im Gespräch vor, deshalb\n// muss der Satz sprechbar sein — keine IDs, keine Zeitstempel, kein 'ISO'.\n\nconst vormerkung = $('Slot vormerken').first().json.body ?? {};\n\nif (!vormerkung.ok) {\n  return [{ json: {\n    ok: false,\n    grund: vormerkung.grund ?? 'fehler',\n    bestaetigung: vormerkung.bestaetigung\n      ?? 'Das hat leider nicht geklappt. Ich notiere den Wunsch, und Damjan meldet sich.',\n  } }];\n}\n\n// Ausdrücklich den Google-Node ansprechen, nicht $input. Vor diesem Node\n// liegt 'Kalender-ID sichern' — $input.first() wäre also dessen Antwort,\n// und die ist immer in Ordnung. Der Fehler fiele erst auf, wenn jemand\n// einen Termin sucht, der nie im Kalender ankam.\nconst google = $('Google: Termin anlegen').first().json;\n// Bei onError liefert der Node ein { error: … } statt einer Antwort.\nconst imKalender = !google?.error &&\n  (google?.statusCode === undefined || (google.statusCode >= 200 && google.statusCode < 300));\nif (google?.error) console.error(`Kalendereintrag fehlgeschlagen: ${google.error.message ?? google.error}`);\n\nconst start = new Intl.DateTimeFormat('de-DE', {\n  timeZone: 'Europe/Berlin', weekday: 'long', day: 'numeric', month: 'long',\n  hour: '2-digit', minute: '2-digit',\n}).format(new Date(vormerkung.start));\n\nreturn [{ json: {\n  ok: true,\n  buchung_id: vormerkung.buchung_id,\n  im_kalender: imKalender,\n  // In beiden Fällen dieselbe Zusage. Der Termin steht — ob der\n  // Kalendereintrag es schon geschafft hat, ist nicht das Problem des\n  // Anrufers. Fehlt er, sieht Damjan die Buchung trotzdem.\n  bestaetigung: `Der Termin steht: ${start}. Damjan ruft Sie dann an.`,\n} }];\n"
+      },
+      "id": "a3000000-0000-4000-8000-000000000006",
+      "name": "Antwort formulieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a3000000-0000-4000-8000-000000000007",
+      "name": "An den Agent zurück",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Agent bucht": {
+      "main": [
+        [
+          {
+            "node": "Slot vormerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slot vormerken": {
+      "main": [
+        [
+          {
+            "node": "Slot bekommen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slot bekommen?": {
+      "main": [
+        [
+          {
+            "node": "Google: Termin anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort formulieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google: Termin anlegen": {
+      "main": [
+        [
+          {
+            "node": "Kalender-ID sichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kalender-ID sichern": {
+      "main": [
+        [
+          {
+            "node": "Antwort formulieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort formulieren": {
+      "main": [
+        [
+          {
+            "node": "An den Agent zurück",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

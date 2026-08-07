@@ -1,0 +1,73 @@
+{
+  "_kommentar": [
+    "Fragt den Kalender ab und liefert konkrete Terminvorschläge zurück.",
+    "Der Agent bekommt fertige Sätze, keine Rohdaten — am Telefon soll er",
+    "vorlesen können, ohne zu rechnen.",
+    "",
+    "Platzhalter ${...} ersetzt scripts/provision-elevenlabs.mjs aus der .env.",
+    "Felder mit führendem Unterstrich werden vor dem Senden entfernt."
+  ],
+  "tool_config": {
+    "type": "webhook",
+    "name": "verfuegbarkeit_pruefen",
+    "description": "Ermittelt, wann Damjan Zeit für ein Gespräch hat, und liefert konkrete Terminvorschläge. Aufrufen, sobald es im Gespräch um einen Termin geht. NICHT aufrufen, wenn der Betriebsmodus 'aus' ist.",
+    "response_timeout_secs": 15,
+    "execution_mode": "immediate",
+    "pre_tool_speech": "auto",
+    "interruption_mode": "disable_during_tool",
+    "tool_call_sound": "typing",
+    "tool_error_handling_mode": "summarized",
+    "api_schema": {
+      "url": "${VOICE_WEBHOOK_BASE}/verfuegbarkeit",
+      "method": "POST",
+      "content_type": "application/json",
+      "request_headers": {
+        "X-Voice-Token": { "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}" }
+      },
+      "request_body_schema": {
+        "type": "object",
+        "description": "Wunsch des Anrufers, so konkret wie er ihn genannt hat.",
+        "properties": {
+          "ab_datum": {
+            "type": "string",
+            "description": "Frühestes gewünschtes Datum im Format JJJJ-MM-TT. Weglassen, wenn der Anrufer keinen Zeitraum genannt hat — dann wird ab morgen gesucht. Beispiel: sagt jemand 'nächste Woche', hier den Montag der kommenden Woche eintragen."
+          },
+          "tageszeit": {
+            "type": "string",
+            "description": "Bevorzugte Tageszeit, falls genannt.",
+            "enum": ["vormittags", "nachmittags", "egal"]
+          },
+          "dauer_minuten": {
+            "type": "integer",
+            "description": "Gewünschte Gesprächsdauer in Minuten. Standard 30. Nur abweichend setzen, wenn der Anrufer ausdrücklich mehr Zeit braucht."
+          },
+          "conversation_id": {
+            "type": "string",
+            "_description": "Die ID dieses Gesprächs.",
+            "dynamic_variable": "system__conversation_id"
+          }
+        },
+        "required": []
+      },
+      "response_body_schema": {
+        "type": "object",
+        "description": "Nur zur Dokumentation — wird nicht an das Sprachmodell gereicht.",
+        "properties": {
+          "vorschlaege": {
+            "type": "array",
+            "description": "Bis zu drei freie Termine, bereits ausformuliert.",
+            "items": {
+              "type": "string",
+              "description": "Ein Terminvorschlag als Zeitstempel mit Zeitzone."
+            }
+          },
+          "ansage": {
+            "type": "string",
+            "description": "Fertiger Satz zum Vorlesen, z.B. 'Donnerstag um zehn oder Freitag um vierzehn Uhr'."
+          }
+        },
+        "required": []
+      }
+    }
+  }
+}

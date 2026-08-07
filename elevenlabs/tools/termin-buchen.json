@@ -1,0 +1,74 @@
+{
+  "_kommentar": [
+    "Trägt einen Termin ein. Wird erst aufgerufen, nachdem der Anrufer einer",
+    "konkreten Zeit zugestimmt hat.",
+    "",
+    "Die Datenbank hat einen eindeutigen Index auf belegte Startzeiten. Zwei",
+    "Anrufer, die im selben Moment denselben Slot nehmen wollen, können also",
+    "nicht beide gewinnen — der zweite bekommt eine klare Absage statt einer",
+    "stillen Doppelbuchung."
+  ],
+  "tool_config": {
+    "type": "webhook",
+    "name": "termin_buchen",
+    "description": "Trägt einen verbindlichen Termin in Damjans Kalender ein. NUR aufrufen, wenn der Anrufer einer konkreten Zeit ausdrücklich zugestimmt hat. Nicht aufrufen, um Zeiten zu prüfen — dafür ist verfuegbarkeit_pruefen da.",
+    "response_timeout_secs": 20,
+    "execution_mode": "immediate",
+    "pre_tool_speech": "force",
+    "interruption_mode": "disable_during_tool",
+    "tool_call_sound": "typing",
+    "tool_error_handling_mode": "summarized",
+    "api_schema": {
+      "url": "${VOICE_WEBHOOK_BASE}/termin",
+      "method": "POST",
+      "content_type": "application/json",
+      "request_headers": {
+        "X-Voice-Token": { "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}" }
+      },
+      "request_body_schema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "description": "Beginn des Termins als vollständiger Zeitstempel mit Zeitzone, exakt so wie von verfuegbarkeit_pruefen geliefert. Beispiel: 2026-08-13T10:00:00+02:00. Niemals selbst ausrechnen — immer einen der zurückgegebenen Werte verwenden."
+          },
+          "dauer_minuten": {
+            "type": "integer",
+            "description": "Dauer in Minuten. Standard 30."
+          },
+          "name": {
+            "type": "string",
+            "description": "Vor- und Nachname des Anrufers, so wie er ihn genannt hat."
+          },
+          "firma": {
+            "type": "string",
+            "description": "Firma des Anrufers, falls genannt."
+          },
+          "thema": {
+            "type": "string",
+            "description": "Worum es in dem Termin gehen soll, in einem knappen Satz."
+          },
+          "email": {
+            "type": "string",
+            "description": "E-Mail-Adresse für die Bestätigung, falls der Anrufer sie nennt. Nicht danach fragen, wenn er sie nicht von sich aus anbietet."
+          },
+          "telefon": {
+            "type": "string",
+            "description": "Rückrufnummer, falls sie von der Anrufernummer abweicht."
+          },
+          "conversation_id": {
+            "type": "string",
+            "_description": "Die ID dieses Gesprächs.",
+            "dynamic_variable": "system__conversation_id"
+          },
+          "anrufer_nummer": {
+            "type": "string",
+            "_description": "Die Nummer, von der aus angerufen wird.",
+            "dynamic_variable": "system__caller_id"
+          }
+        },
+        "required": ["start", "name", "thema"]
+      }
+    }
+  }
+}

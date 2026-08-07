@@ -1,0 +1,278 @@
+{
+  "_kommentar": [
+    "Deklarative Beschreibung des Agents. scripts/provision-elevenlabs.mjs",
+    "liest diese Datei, ersetzt ${PLATZHALTER} aus der .env, hängt den",
+    "Systemprompt aus prompts/system-prompt.md an und legt den Agent an bzw.",
+    "aktualisiert ihn.",
+    "",
+    "Die Feldnamen folgen exakt dem Schema aus https://api.elevenlabs.io/openapi.json",
+    "(ConversationalConfigAPIModel-Input). Wer hier etwas ändert, prüft es",
+    "bitte dort gegen — ein falscher Feldname liefert 422, ein falscher Wert",
+    "in einem Enum ebenfalls. Stilles Ignorieren gibt es nicht.",
+    "",
+    "Alle Schlüssel mit führendem Unterstrich werden vor dem Senden entfernt."
+  ],
+
+  "name": "${AGENT_NAME}",
+  "tags": ["voice-agent", "vorzimmer", "damjan"],
+
+  "conversation_config": {
+    "agent": {
+      "language": "de",
+
+      "_first_message": [
+        "Wird pro Anruf vom Vorab-Webhook je nach Modus überschrieben.",
+        "Dieser Text hier gilt, wenn der Webhook nicht antwortet — er ist",
+        "bewusst so formuliert, dass er in jedem Modus vertretbar ist."
+      ],
+      "first_message": "Guten Tag, hier ist der Assistent von Damjan Savić. Er kann gerade nicht selbst ans Telefon — worum geht es denn?",
+
+      "disable_first_message_interruptions": false,
+
+      "_dynamic_variables": [
+        "Standardwerte für den Fall, dass der Vorab-Webhook ausfällt oder",
+        "eine Variable nicht mitschickt. Ohne diese Platzhalter bricht der",
+        "Anruf mit 'missing required dynamic variables' ab — der Agent würde",
+        "also ausgerechnet dann nicht abnehmen, wenn n8n Probleme hat.",
+        "Die Vorgaben ergeben zusammen einen brauchbaren Notbetrieb:",
+        "annehmen, notieren, nicht durchstellen, keinen Kalender versprechen."
+      ],
+      "dynamic_variables": {
+        "dynamic_variable_placeholders": {
+          "modus": "nur_notiz",
+          "anrufer_name": "unbekannt",
+          "anrufer_bekannt": "nein",
+          "anrufer_notiz": "nichts hinterlegt",
+          "status_hinweis": "",
+          "durchstellen_moeglich": "nein",
+          "heute": "heute",
+          "uhrzeit": "unbekannt"
+        }
+      },
+
+      "prompt": {
+        "_prompt": "Wird von provision-elevenlabs.mjs aus prompts/system-prompt.md eingesetzt.",
+        "prompt": "",
+
+        "_llm": [
+          "gemini-2.5-flash ist der ElevenLabs-Standard: schnellste Antwortzeit",
+          "und rund 0,0014 USD je Gesprächsminute. claude-haiku-4-5 urteilt bei",
+          "der Frage 'durchstellen oder nicht' spürbar sorgfältiger, kostet aber",
+          "etwa das Siebenfache (0,0098 USD/Min) und antwortet minimal träger.",
+          "Umschalten über ELEVENLABS_LLM in der .env — beide sind nativ",
+          "unterstützt, kein Custom-LLM nötig.",
+          "Vollständige Liste mit Preisen: elevenlabs/llm-preise.json"
+        ],
+        "llm": "${ELEVENLABS_LLM}",
+
+        "_temperature": "0 heißt: gleiche Situation, gleiche Entscheidung. Am Telefon ist Verlässlichkeit mehr wert als Abwechslung.",
+        "temperature": 0.15,
+        "max_tokens": 400,
+
+        "tool_ids": [],
+
+        "built_in_tools": {
+          "end_call": {
+            "type": "system",
+            "name": "end_call",
+            "description": "Beendet das Gespräch. Erst aufrufen, nachdem notiz_anlegen gelaufen ist und du dich verabschiedet hast.",
+            "params": { "system_tool_type": "end_call" }
+          },
+
+          "_transfer_to_number": [
+            "Das Ziel ist eine feste Liste, keine frei wählbare Nummer — das",
+            "Sprachmodell kann also niemand anderen anrufen als Damjan.",
+            "",
+            "transfer_type:",
+            "  conference  Vorgabe. Funktioniert mit Twilio UND SIP-Trunk.",
+            "              Der Angerufene sieht die Agent-Nummer, nicht die des",
+            "              Anrufers — praktisch, weil man am Display sofort",
+            "              erkennt, dass der Agent durchstellt.",
+            "  blind       Erhält die Original-Anrufernummer, geht aber nur mit",
+            "              der nativen Twilio-Anbindung.",
+            "  sip_refer   Für SIP-Trunks ohne Konferenzbrücke.",
+            "Umschaltbar über TRANSFER_TYPE in der .env."
+          ],
+          "transfer_to_number": {
+            "type": "system",
+            "name": "transfer_to_number",
+            "description": "Stellt den laufenden Anruf an Damjan durch. Nur im Modus 'aktiv' und nur, wenn die Sache heute nicht warten kann.",
+            "params": {
+              "system_tool_type": "transfer_to_number",
+              "enable_client_message": true,
+              "transfers": [
+                {
+                  "transfer_destination": {
+                    "type": "phone",
+                    "phone_number": "${OWNER_PHONE}"
+                  },
+                  "transfer_type": "${TRANSFER_TYPE}",
+                  "condition": "Der Betriebsmodus ist 'aktiv', die dynamische Variable durchstellen_moeglich steht auf 'ja', und das Anliegen ist echt zeitkritisch: ein laufender Auftrag steht still, ein Termin in der nächsten Stunde platzt, ein bekannter Kontakt oder Angehöriger hat eine dringende Sache. NICHT durchstellen bei Werbung, Kaltakquise, Bewerbungen, allgemeinen Fragen oder allem, was auch morgen noch geht."
+                }
+              ]
+            }
+          },
+
+          "_skip_turn": "Lässt den Agent schweigen, wenn der Anrufer erkennbar noch nachdenkt, statt in die Pause zu reden.",
+          "skip_turn": {
+            "type": "system",
+            "name": "skip_turn",
+            "description": "Nichts sagen und dem Anrufer Zeit lassen. Nutzen, wenn er hörbar überlegt oder etwas sucht.",
+            "params": { "system_tool_type": "skip_turn" }
+          }
+        },
+
+        "knowledge_base": [],
+
+        "_rag": "Bei einer Handvoll kurzer Dokumente ist die Volltextübergabe schneller und genauer als eine Vektorsuche.",
+        "rag": { "enabled": false }
+      }
+    },
+
+    "_tts": [
+      "eleven_flash_v2_5 ist das Modell mit der niedrigsten Latenz und kann",
+      "Deutsch. Am Telefon zählt jede Zehntelsekunde vor der ersten Silbe.",
+      "",
+      "agent_output_audio_format MUSS ulaw_8000 sein. Telefonie überträgt",
+      "G.711; bei der Vorgabe pcm_16000 hört der Anrufer Rauschen oder nichts."
+    ],
+    "tts": {
+      "model_id": "eleven_flash_v2_5",
+      "voice_id": "${ELEVENLABS_VOICE_ID}",
+      "agent_output_audio_format": "ulaw_8000",
+      "stability": 0.5,
+      "similarity_boost": 0.75,
+      "speed": 1.0
+    },
+
+    "_asr": [
+      "keywords hebt Begriffe an, die das Erkennungsmodell sonst verhaspelt —",
+      "vor allem der Nachname und die eigenen Fachbegriffe."
+    ],
+    "asr": {
+      "quality": "high",
+      "provider": "scribe_realtime",
+      "user_input_audio_format": "ulaw_8000",
+      "keywords": [
+        "Damjan", "Savić", "Savic", "Everlast", "Consulting",
+        "n8n", "Automatisierung", "KI-Agent", "Voice", "Workflow",
+        "Termin", "Rückruf", "dringend", "Angebot"
+      ]
+    },
+
+    "_turn": [
+      "turn_timeout: Sekunden Stille, bis der Agent selbst weiterspricht.",
+      "7 Sekunden klingen lang, sind am Telefon aber richtig — Menschen",
+      "denken nach, und ein Agent, der in die Denkpause redet, wirkt hektisch.",
+      "silence_end_call_timeout beendet Gespräche, bei denen niemand mehr da",
+      "ist; ohne das laufen abgebrochene Verbindungen bis zum Zeitlimit weiter",
+      "und kosten Minuten."
+    ],
+    "turn": {
+      "turn_timeout": 7,
+      "silence_end_call_timeout": 25,
+      "mode": "turn",
+      "turn_model": "turn_v3",
+      "_turn_eagerness": "'patient' lässt den Anrufer ausreden, statt in die erste Atempause zu springen. Für ein Vorzimmer, in dem Menschen ihr Anliegen sortieren, ist das die richtige Seite des Kompromisses.",
+      "turn_eagerness": "patient"
+    },
+
+    "conversation": {
+      "text_only": false,
+      "_max_duration_seconds": "Sechs Minuten reichen für jedes Vorzimmergespräch. Danach ist etwas schiefgelaufen und läuft nur noch auf die Rechnung.",
+      "max_duration_seconds": 360,
+      "client_events": ["audio", "interruption", "user_transcript", "agent_response"]
+    }
+  },
+
+  "platform_settings": {
+    "_overrides": [
+      "Ohne diese Freigaben ignoriert ElevenLabs stillschweigend alles, was",
+      "der Vorab-Webhook an conversation_config_override schickt. Der Agent",
+      "würde dann in jedem Modus gleich klingen — und man merkt es erst,",
+      "wenn ein Anrufer im Urlaub einen Termin bekommt.",
+      "Reine dynamic_variables brauchen die Freigabe nicht; die",
+      "Unterscheidung ist die häufigste Fehlerquelle beim ersten Rollout."
+    ],
+    "overrides": {
+      "enable_conversation_initiation_client_data_from_webhook": true,
+      "conversation_config_override": {
+        "agent": {
+          "first_message": true,
+          "language": false,
+          "prompt": { "prompt": false }
+        },
+        "tts": { "voice_id": false },
+        "conversation": { "text_only": false }
+      }
+    },
+
+    "_call_limits": [
+      "bursting_enabled ist bei ElevenLabs standardmäßig AN und rechnet",
+      "Überschussanrufe zum doppelten Minutenpreis ab. Für ein privates",
+      "Vorzimmer, das nie mehr als ein oder zwei Anrufe gleichzeitig hat,",
+      "ist das nur ein Kostenrisiko ohne Nutzen."
+    ],
+    "call_limits": {
+      "agent_concurrency_limit": 3,
+      "daily_limit": 100,
+      "bursting_enabled": false
+    },
+
+    "_data_collection": "Felder, die ElevenLabs selbst aus dem Transkript zieht. Doppelt gemoppelt zu notiz_anlegen, aber unabhängig davon — falls der Agent das Werkzeug einmal vergisst, steht es wenigstens hier.",
+    "data_collection": {
+      "anliegen": {
+        "type": "string",
+        "description": "Worum ging es dem Anrufer? Ein knapper Satz."
+      },
+      "anrufer_name": {
+        "type": "string",
+        "description": "Name des Anrufers, falls genannt. Sonst 'unbekannt'."
+      },
+      "dringlichkeit": {
+        "type": "integer",
+        "description": "1 = Werbung/Irrläufer bis 5 = muss heute passieren."
+      },
+      "ist_werbung": {
+        "type": "boolean",
+        "description": "War das ein Verkaufs- oder Werbeanruf?"
+      },
+      "rueckruf_erwuenscht": {
+        "type": "boolean",
+        "description": "Möchte der Anrufer zurückgerufen werden?"
+      }
+    },
+
+    "evaluation": {
+      "criteria": [
+        {
+          "id": "anliegen_erfasst",
+          "name": "Anliegen erfasst",
+          "conversation_goal_prompt": "Hat der Agent verstanden und festgehalten, worum es dem Anrufer ging? Erfolg, wenn ein Dritter allein aus der Notiz erkennen kann, was der Anrufer wollte."
+        },
+        {
+          "id": "hoeflich_geblieben",
+          "name": "Höflich geblieben",
+          "conversation_goal_prompt": "Blieb der Agent durchgehend freundlich und sachlich — auch bei Ungeduld, Drängen oder Unfreundlichkeit des Anrufers?"
+        },
+        {
+          "id": "keine_erfindungen",
+          "name": "Nichts erfunden",
+          "conversation_goal_prompt": "Hat der Agent Preise, Zusagen, Termine oder Fähigkeiten erfunden, die nicht aus der Wissensbasis oder einem Werkzeugergebnis stammen? Erfolg = nein, er hat nichts erfunden."
+        },
+        {
+          "id": "modus_eingehalten",
+          "name": "Modus eingehalten",
+          "conversation_goal_prompt": "Hat der Agent die Regeln seines Betriebsmodus befolgt? Im Modus 'nur_notiz' und 'aus' darf er unter keinen Umständen durchgestellt haben; im Modus 'aus' darf er keine Termine angeboten haben."
+        }
+      ]
+    },
+
+    "privacy": {
+      "_kommentar": "Aufzeichnung bleibt an — ohne Audio gibt es keine brauchbare Nachbereitung und keine Fehlersuche. Die Aufbewahrung ist begrenzt.",
+      "retention_days": 90,
+      "delete_transcript_and_pii": false,
+      "delete_audio": false
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "name": "10 · Anruf-Start (Modus und Anrufer)",
+  "description": "Läuft, während es beim Anrufer klingelt. ElevenLabs fragt hier ab, in welchem Modus der Agent ist, wer anruft und wie er begrüßen soll. Muss schnell und immer antworten — deshalb keine Kalenderabfrage und keine langen Wege. KRITISCH: nie abschalten.",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "executionTimeout": 20,
+    "errorWorkflow": "voiceagent90fehler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice/init",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "ElevenLabs ruft an",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-360, 0],
+      "webhookId": "b1000000-0000-4000-8000-000000000001",
+      "notes": "ElevenLabs schickt: caller_id, agent_id, called_number, call_sid.\nDer Anrufer hört währenddessen das Freizeichen — hier zählt jede Zehntelsekunde."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__CONTROL_API__/intern/init",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Voice-Token",
+              "value": "={{ $json.headers['x-voice-token'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 6000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Zustand holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-140, 0],
+      "notes": "Der Token wird durchgereicht, nicht neu erzeugt. Die Prüfung passiert\neinmal in der Control-API — zwei Prüfstellen wären zwei Stellen, an denen\nein rotierter Token vergessen wird.\n\nneverError: true, damit ein 4xx/5xx nicht die Ausführung abbricht,\nsondern unten sauber in den Notbetrieb läuft."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n//  Antwort für ElevenLabs zusammenbauen\n// ---------------------------------------------------------------------------\n//  Zwei Wege führen hier durch:\n//\n//    Normalfall  Die Control-API hat geantwortet. Wir reichen ihre Antwort\n//                durch und entfernen nur das interne Beiwerk.\n//\n//    Notbetrieb  Die Control-API war nicht erreichbar oder hat gemeckert.\n//                Dann MUSS hier trotzdem eine vollständige, gültige Antwort\n//                herauskommen. Fehlt auch nur eine dynamische Variable,\n//                bricht ElevenLabs den Anruf ab — der Anrufer hört ein\n//                Klicken und Stille. Ein Agent, der ohne Kalender arbeitet,\n//                ist unendlich viel besser als einer, der nicht abnimmt.\n\nconst antwort = $input.first().json;\nconst status = antwort.statusCode ?? 0;\nconst inhalt = antwort.body ?? {};\n\nif (status >= 200 && status < 300 && inhalt.dynamic_variables) {\n  const { _intern, ...sauber } = inhalt;\n  return [{ json: { _hinweis: 'normal', _intern: _intern ?? {}, antwort: sauber } }];\n}\n\nconsole.warn(`Control-API nicht verwertbar (HTTP ${status}) — Notbetrieb`);\n\nconst jetzt = new Date();\nconst fmt = (o) => new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', ...o }).format(jetzt);\n\n// parseInt statt Number: die deutsche Formatierung hängt \" Uhr\" an, und\n// Number('12 Uhr') ist NaN. Damit wären alle Vergleiche unten falsch und der\n// Agent grüßte mittags mit \"Guten Abend\".\nconst stunde = parseInt(fmt({ hour: '2-digit', hour12: false }), 10) % 24;\nconst gruss = stunde < 11 ? 'Guten Morgen' : stunde < 18 ? 'Guten Tag' : 'Guten Abend';\n\n// Der Notbetrieb nimmt an und notiert. Er stellt bewusst NICHT durch und\n// verspricht keine Termine — beides bräuchte Daten, die gerade fehlen.\nreturn [{\n  json: {\n    _hinweis: 'notbetrieb',\n    _intern: {},\n    antwort: {\n      type: 'conversation_initiation_client_data',\n      dynamic_variables: {\n        modus: 'nur_notiz',\n        anrufer_name: 'unbekannt',\n        anrufer_bekannt: 'nein',\n        anrufer_notiz: 'nichts hinterlegt',\n        status_hinweis: '',\n        durchstellen_moeglich: 'nein',\n        heute: fmt({ weekday: 'long', day: 'numeric', month: 'long' }),\n        uhrzeit: fmt({ hour: '2-digit', minute: '2-digit', hour12: false }),\n      },\n      conversation_config_override: {\n        agent: {\n          first_message: `${gruss}, hier ist der Assistent von Damjan Savić. ` +\n            'Er kann gerade nicht selbst ans Telefon — worum geht es denn?',\n        },\n      },\n    },\n  },\n}];\n"
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Antwort bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.antwort) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "An ElevenLabs zurück",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [300, 0],
+      "notes": "Immer 200. ElevenLabs schaltet einen Webhook nach zehn Fehlversuchen in\nFolge selbsttätig ab — ein 500er hier ist teurer, als er aussieht."
+    }
+  ],
+  "connections": {
+    "ElevenLabs ruft an": {
+      "main": [[{ "node": "Zustand holen", "type": "main", "index": 0 }]]
+    },
+    "Zustand holen": {
+      "main": [[{ "node": "Antwort bauen", "type": "main", "index": 0 }]]
+    },
+    "Antwort bauen": {
+      "main": [[{ "node": "An ElevenLabs zurück", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {}
+}

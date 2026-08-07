@@ -1,0 +1,28 @@
+# Geheimnisse
+.env
+.env.local
+*.pem
+*.key
+elevenlabs/.provisioned.json
+google-service-account*.json
+
+# Daten
+backups/
+data/
+*.sql.gz
+
+# Node
+node_modules/
+npm-debug.log*
+.npm/
+
+# Editor und System
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Laufzeit
+*.log
+.tmp/

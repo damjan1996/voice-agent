@@ -1,0 +1,395 @@
+{
+  "abgerufen_am": "2026-08-07",
+  "quelle": "POST https://api.elevenlabs.io/v1/convai/llm-usage/calculate",
+  "hinweis": "Preis je Gespraechsminute bei 1000 Zeichen Systemprompt, ohne RAG. Nur der LLM-Anteil; ElevenLabs-Minuten kommen obendrauf.",
+  "modelle": [
+    {
+      "llm": "grok-beta",
+      "price_per_minute": 0.0
+    },
+    {
+      "llm": "custom-llm",
+      "price_per_minute": 0.0
+    },
+    {
+      "llm": "speech-engine",
+      "price_per_minute": 0.0
+    },
+    {
+      "llm": "gpt-5-nano",
+      "price_per_minute": 0.0005354846999999999
+    },
+    {
+      "llm": "gpt-5-nano-2025-08-07",
+      "price_per_minute": 0.0005354846999999999
+    },
+    {
+      "llm": "gemini-1.5-flash",
+      "price_per_minute": 0.0007128729000000001
+    },
+    {
+      "llm": "gemini-2.0-flash-lite",
+      "price_per_minute": 0.0007128729000000001
+    },
+    {
+      "llm": "gemini-2.0-flash-lite-001",
+      "price_per_minute": 0.0007128729000000001
+    },
+    {
+      "llm": "gemini-1.5-flash-002",
+      "price_per_minute": 0.0007128729000000001
+    },
+    {
+      "llm": "gemini-1.5-flash-001",
+      "price_per_minute": 0.0007128729000000001
+    },
+    {
+      "llm": "gpt-4.1-nano",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gemini-2.0-flash",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gemini-2.5-flash-lite",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gemini-2.5-flash-lite-preview-09-2025",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gemini-2.5-flash-lite-preview-06-17",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gemini-2.0-flash-001",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gpt-4.1-nano-2025-04-14",
+      "price_per_minute": 0.0009504972
+    },
+    {
+      "llm": "gpt-4o-mini",
+      "price_per_minute": 0.0014257458000000002
+    },
+    {
+      "llm": "gemini-2.5-flash",
+      "price_per_minute": 0.0014257458000000002
+    },
+    {
+      "llm": "gemini-2.5-flash-preview-09-2025",
+      "price_per_minute": 0.0014257458000000002
+    },
+    {
+      "llm": "gemini-2.5-flash-preview-05-20",
+      "price_per_minute": 0.0014257458000000002
+    },
+    {
+      "llm": "gemini-2.5-flash-preview-04-17",
+      "price_per_minute": 0.0014257458000000002
+    },
+    {
+      "llm": "gpt-4o-mini-2024-07-18",
+      "price_per_minute": 0.0014257458000000002
+    },
+    {
+      "llm": "gpt-oss-20b",
+      "price_per_minute": 0.0017489812499999998
+    },
+    {
+      "llm": "watt-tool-8b",
+      "price_per_minute": 0.0017489812499999998
+    },
+    {
+      "llm": "watt-tool-70b",
+      "price_per_minute": 0.0017489812499999998
+    },
+    {
+      "llm": "gpt-5.6-luna",
+      "price_per_minute": 0.0020214665999999997
+    },
+    {
+      "llm": "gpt-5.4-nano",
+      "price_per_minute": 0.0020365256249999996
+    },
+    {
+      "llm": "gpt-5.4-nano-2026-03-17",
+      "price_per_minute": 0.0020365256249999996
+    },
+    {
+      "llm": "claude-3-haiku",
+      "price_per_minute": 0.0024515381249999996
+    },
+    {
+      "llm": "claude-3-haiku@20240307",
+      "price_per_minute": 0.0024515381249999996
+    },
+    {
+      "llm": "gemini-3.1-flash-lite-preview",
+      "price_per_minute": 0.0025268332499999995
+    },
+    {
+      "llm": "gemini-3.1-flash-lite",
+      "price_per_minute": 0.0025268332499999995
+    },
+    {
+      "llm": "qwen35-35b-a3b",
+      "price_per_minute": 0.002584935
+    },
+    {
+      "llm": "qwen36-35b-a3b",
+      "price_per_minute": 0.002584935
+    },
+    {
+      "llm": "gpt-5-mini",
+      "price_per_minute": 0.0026774234999999997
+    },
+    {
+      "llm": "gpt-5-mini-2025-08-07",
+      "price_per_minute": 0.0026774234999999997
+    },
+    {
+      "llm": "gpt-oss-120b",
+      "price_per_minute": 0.0031578893999999994
+    },
+    {
+      "llm": "gemini-3.5-flash-lite",
+      "price_per_minute": 0.00324302625
+    },
+    {
+      "llm": "qwen3-4b",
+      "price_per_minute": 0.0034979624999999996
+    },
+    {
+      "llm": "qwen3-30b-a3b",
+      "price_per_minute": 0.0034979624999999996
+    },
+    {
+      "llm": "gpt-4.1-mini",
+      "price_per_minute": 0.0038019888
+    },
+    {
+      "llm": "gpt-4.1-mini-2025-04-14",
+      "price_per_minute": 0.0038019888
+    },
+    {
+      "llm": "gpt-3.5-turbo",
+      "price_per_minute": 0.0046018957499999995
+    },
+    {
+      "llm": "gpt-3.5-turbo-0125",
+      "price_per_minute": 0.0046018957499999995
+    },
+    {
+      "llm": "gpt-3.5-turbo-1106",
+      "price_per_minute": 0.0046018957499999995
+    },
+    {
+      "llm": "gemini-3-flash-preview",
+      "price_per_minute": 0.005053666499999999
+    },
+    {
+      "llm": "gpt-5.4-mini",
+      "price_per_minute": 0.00758049975
+    },
+    {
+      "llm": "gpt-5.4-mini-2026-03-17",
+      "price_per_minute": 0.00758049975
+    },
+    {
+      "llm": "qwen35-397b-a17b",
+      "price_per_minute": 0.009746865
+    },
+    {
+      "llm": "claude-haiku-4-5",
+      "price_per_minute": 0.009806152499999998
+    },
+    {
+      "llm": "claude-haiku-4-5@20251001",
+      "price_per_minute": 0.009806152499999998
+    },
+    {
+      "llm": "glm-45-air-fp8",
+      "price_per_minute": 0.011219566499999998
+    },
+    {
+      "llm": "gemini-1.5-pro",
+      "price_per_minute": 0.011881214999999999
+    },
+    {
+      "llm": "gemini-1.5-pro-002",
+      "price_per_minute": 0.011881214999999999
+    },
+    {
+      "llm": "gemini-1.5-pro-001",
+      "price_per_minute": 0.011881214999999999
+    },
+    {
+      "llm": "gpt-5",
+      "price_per_minute": 0.013387117499999998
+    },
+    {
+      "llm": "gpt-5.1",
+      "price_per_minute": 0.013387117499999998
+    },
+    {
+      "llm": "gpt-5-2025-08-07",
+      "price_per_minute": 0.013387117499999998
+    },
+    {
+      "llm": "gpt-5.1-2025-11-13",
+      "price_per_minute": 0.013387117499999998
+    },
+    {
+      "llm": "gemini-3.5-flash",
+      "price_per_minute": 0.0151609995
+    },
+    {
+      "llm": "gpt-5.2",
+      "price_per_minute": 0.0187419645
+    },
+    {
+      "llm": "gpt-5.2-chat-latest",
+      "price_per_minute": 0.0187419645
+    },
+    {
+      "llm": "gpt-5.2-2025-12-11",
+      "price_per_minute": 0.0187419645
+    },
+    {
+      "llm": "gpt-4.1",
+      "price_per_minute": 0.019009944
+    },
+    {
+      "llm": "gpt-4.1-2025-04-14",
+      "price_per_minute": 0.019009944
+    },
+    {
+      "llm": "gpt-5.6-terra",
+      "price_per_minute": 0.020214665999999996
+    },
+    {
+      "llm": "gemini-3-pro-preview",
+      "price_per_minute": 0.020214665999999996
+    },
+    {
+      "llm": "gemini-3.1-pro-preview",
+      "price_per_minute": 0.020214665999999996
+    },
+    {
+      "llm": "claude-sonnet-5",
+      "price_per_minute": 0.021573535499999998
+    },
+    {
+      "llm": "gpt-4o",
+      "price_per_minute": 0.023762429999999998
+    },
+    {
+      "llm": "gpt-4o-2024-11-20",
+      "price_per_minute": 0.023762429999999998
+    },
+    {
+      "llm": "gpt-4o-2024-08-06",
+      "price_per_minute": 0.023762429999999998
+    },
+    {
+      "llm": "gpt-4o-2024-05-13",
+      "price_per_minute": 0.023762429999999998
+    },
+    {
+      "llm": "gpt-5.4",
+      "price_per_minute": 0.0252683325
+    },
+    {
+      "llm": "gpt-5.4-2026-03-05",
+      "price_per_minute": 0.0252683325
+    },
+    {
+      "llm": "claude-sonnet-4-5",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-sonnet-4-6",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-sonnet-4",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-3-7-sonnet",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-3-5-sonnet",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-3-5-sonnet-v1",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-sonnet-4@20250514",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-sonnet-4-5@20250929",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-3-7-sonnet@20250219",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-3-5-sonnet@20240620",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-3-5-sonnet-v2@20241022",
+      "price_per_minute": 0.0294184575
+    },
+    {
+      "llm": "claude-opus-4-7",
+      "price_per_minute": 0.0490307625
+    },
+    {
+      "llm": "gpt-5.5",
+      "price_per_minute": 0.050536665
+    },
+    {
+      "llm": "gpt-5.6-sol",
+      "price_per_minute": 0.050536665
+    },
+    {
+      "llm": "gpt-5.5-2026-04-23",
+      "price_per_minute": 0.050536665
+    },
+    {
+      "llm": "claude-opus-4-8",
+      "price_per_minute": 0.05393383875
+    },
+    {
+      "llm": "gpt-4-turbo",
+      "price_per_minute": 0.092037915
+    },
+    {
+      "llm": "gpt-4-turbo-2024-04-09",
+      "price_per_minute": 0.092037915
+    },
+    {
+      "llm": "gpt-4",
+      "price_per_minute": 0.26707833
+    },
+    {
+      "llm": "gpt-4-0613",
+      "price_per_minute": 0.26707833
+    },
+    {
+      "llm": "gpt-4-0314",
+      "price_per_minute": 0.26707833
+    }
+  ]
+}

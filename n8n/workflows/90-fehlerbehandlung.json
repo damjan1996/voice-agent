@@ -1,0 +1,65 @@
+{
+  "name": "90 · Fehlerbehandlung",
+  "description": "Hängt als errorWorkflow an allen anderen Workflows. Meldet Ausfälle per WhatsApp, damit ein stiller Fehler nicht erst am nächsten verpassten Anruf auffällt.",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 30
+  },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a9000000-0000-4000-8000-000000000001",
+      "name": "Ein Workflow ist gescheitert",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [-440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n//  Meldung formulieren\n// ---------------------------------------------------------------------------\n//  Fehler haben zwei Dringlichkeiten. Was einen laufenden Anruf betrifft,\n//  muss sofort raus — dort steht gerade jemand am Telefon. Alles andere\n//  kann bis morgen früh warten; die Warteschlange hält Unwichtiges nachts\n//  ohnehin zurück.\n\nconst f = $input.first().json;\nconst wf   = f.workflow?.name ?? 'unbekannt';\nconst node = f.execution?.lastNodeExecuted ?? '—';\nconst text = (f.execution?.error?.message ?? f.execution?.error?.description ?? 'kein Text').slice(0, 400);\nconst url  = f.execution?.url ?? null;\n\nconst waehrendAnruf = /Anruf-Start|Verfügbarkeit|Termin buchen|Notiz/i.test(wf);\n\nconst zeilen = [\n  `${waehrendAnruf ? '🚨' : '⚠️'} *Voice-Agent: Fehler*`,\n  '',\n  `Workflow: *${wf}*`,\n  `Node: ${node}`,\n  '',\n  '```',\n  text,\n  '```',\n];\n\nif (waehrendAnruf) {\n  zeilen.push('', '_Das betrifft laufende Anrufe. Der Agent nimmt weiter ab, aber ohne_',\n              '_Kalender und ohne Durchstellen. Prüfen: `make status`_');\n}\nif (url) zeilen.push('', url);\n\nreturn [{ json: {\n  text: zeilen.join('\\n'),\n  anlass: 'fehler',\n  dringlichkeit: waehrendAnruf ? 5 : 3,\n} }];\n"
+      },
+      "id": "a9000000-0000-4000-8000-000000000002",
+      "name": "Meldung formulieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__CONTROL_API__/intern/melden",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Voice-Token", "value": "__VOICE_TOKEN__" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "a9000000-0000-4000-8000-000000000003",
+      "name": "In die Warteschlange",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 0],
+      "notes": "neverError, damit dieser Workflow nicht selbst scheitert. Ein\nFehlerbehandler, der Fehler wirft, erzeugt eine Schleife — n8n ruft den\nerrorWorkflow dann für seinen eigenen Fehlschlag erneut auf."
+    }
+  ],
+  "connections": {
+    "Ein Workflow ist gescheitert": {
+      "main": [[{ "node": "Meldung formulieren", "type": "main", "index": 0 }]]
+    },
+    "Meldung formulieren": {
+      "main": [[{ "node": "In die Warteschlange", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {}
+}

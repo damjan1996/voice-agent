@@ -1,0 +1,201 @@
+{
+  "name": "20 · Verfügbarkeit (Kalender)",
+  "description": "Rechnet freie Gesprächsfenster aus. Verschneidet die Sprechzeiten aus der Datenbank mit den belegten Zeiten aus dem Google-Kalender und liefert dem Agent zwei bis drei fertig ausformulierte Vorschläge.",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 30,
+    "errorWorkflow": "voiceagent90fehler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice/verfuegbarkeit",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a2000000-0000-4000-8000-000000000001",
+      "name": "Agent fragt nach Terminen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        0
+      ],
+      "webhookId": "b2000000-0000-4000-8000-000000000002"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n//  Suchfenster festlegen\n// ---------------------------------------------------------------------------\n//  Der Agent liefert, was der Anrufer gesagt hat — oft nichts Genaues.\n//  Hier wird daraus ein konkreter Zeitraum, den Google und die Datenbank\n//  beide verstehen.\n\nconst k = $input.first().json.headers ?? {};\nconst b = $input.first().json.body ?? {};\n\nconst dauer = Math.min(Math.max(Number(b.dauer_minuten) || 30, 15), 120);\n\n// Ab wann gesucht wird. Ein Vorlauf verhindert Vorschläge, die schon\n// vorbei sind, bis der Anrufer aufgelegt hat.\nconst VORLAUF_STUNDEN = 3;\nlet ab = new Date(Date.now() + VORLAUF_STUNDEN * 3600e3);\n\nif (b.ab_datum && /^\\d{4}-\\d{2}-\\d{2}$/.test(b.ab_datum)) {\n  const gewuenscht = new Date(`${b.ab_datum}T00:00:00+02:00`);\n  if (!Number.isNaN(gewuenscht.getTime()) && gewuenscht > ab) ab = gewuenscht;\n}\n\n// Zwei Wochen sind genug. Wer weiter im Voraus plant, schreibt eine Mail.\nconst bis = new Date(ab.getTime() + 14 * 86400e3);\n\nreturn [{\n  json: {\n    token: k['x-voice-token'] ?? '',\n    ab: ab.toISOString(),\n    bis: bis.toISOString(),\n    dauer,\n    tageszeit: ['vormittags', 'nachmittags'].includes(b.tageszeit) ? b.tageszeit : 'egal',\n    conversation_id: b.conversation_id ?? null,\n  },\n}];\n"
+      },
+      "id": "a2000000-0000-4000-8000-000000000002",
+      "name": "Suchfenster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "__CONTROL_API__/intern/terminregeln",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ab",
+              "value": "={{ $json.ab }}"
+            },
+            {
+              "name": "tage",
+              "value": "14"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Voice-Token",
+              "value": "={{ $json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000003",
+      "name": "Sprechzeiten und Sperren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        0
+      ],
+      "notes": "Läuft VOR der Google-Abfrage, nicht parallel dazu. Zwei Zweige, die in\ndenselben Node münden, lösen ihn zweimal aus — der Agent bekäme zwei\nAntworten auf einen Werkzeugaufruf. Die gesparten hundert Millisekunden\nsind das nicht wert."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ timeMin: $('Suchfenster').item.json.ab, timeMax: $('Suchfenster').item.json.bis, timeZone: 'Europe/Berlin', items: '__KALENDER_IDS__'.split(',').map(id => ({ id: id.trim() })) }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000004",
+      "name": "Google: belegte Zeiten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        110
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "onError: continueRegularOutput ist hier wichtig.\n\n'neverError' in den Optionen fängt nur HTTP-Fehlercodes ab. Fehlen die\nZugangsdaten ganz — etwa vor der Ersteinrichtung — wirft der Node schon\nvor der Anfrage ('Credentials not found'), und ohne diese Zeile stirbt der\nganze Workflow. Der Agent bekäme dann mitten im Gespräch einen\nWerkzeugfehler statt der ehrlichen Auskunft, dass der Kalender gerade\nnicht erreichbar ist.\n\nZugangsdaten hängen an diesem Node, nicht im Repo.\n\nEs gibt zwei Wege, siehe docs/03-einrichtung.md:\n  OAuth2 (googleCalendarOAuth2Api) — kann Teilnehmer einladen, muss aber\n    einmal interaktiv bestätigt werden. Der Zustimmungsbildschirm MUSS auf\n    'In Production' stehen, sonst verfällt das Refresh-Token nach 7 Tagen.\n  Service Account (googleApi) — komplett ohne Klicks, kann dafür keine\n    Teilnehmer einladen. Dann nodeCredentialType auf googleApi stellen.\n\nneverError: fällt Google aus, soll der Agent das sagen können statt zu\nschweigen."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n//  Freie Fenster ausrechnen\n// ---------------------------------------------------------------------------\n//  Google liefert nur, wann Damjan BELEGT ist. Wann er frei ist, ist das\n//  Komplement — und zwar nicht gegen den ganzen Tag, sondern gegen seine\n//  Sprechzeiten. \"Frei\" und \"buchbar\" sind zwei verschiedene Dinge:\n//  Sonntag um drei Uhr nachts ist frei, aber niemand will da telefonieren.\n\nconst suche  = $('Suchfenster').first().json;\nconst regeln = $('Sprechzeiten und Sperren').first().json;\nconst google = $('Google: belegte Zeiten').first().json;\n\nconst ZONE = 'Europe/Berlin';\nconst dauerMs = suche.dauer * 60e3;\n\n// --- Belegte Blöcke einsammeln ---------------------------------------------\n\nconst belegt = [];\nlet googleOk = false;\n\n// Bei onError: continueRegularOutput liefert der Node statt einer\n// Antwort ein { error: … }. Beides muss hier abgefangen werden.\nif (google?.error) {\n  console.warn(`Google-Node fehlgeschlagen: ${google.error.message ?? google.error}`);\n} else if (google?.statusCode >= 200 && google?.statusCode < 300) {\n  const kalender = google.body?.calendars ?? {};\n  for (const [id, eintrag] of Object.entries(kalender)) {\n    if (eintrag.errors?.length) {\n      // Häufigster Fall: der Kalender wurde nie mit dem Dienstkonto geteilt.\n      // Google meldet das NICHT als HTTP-Fehler, sondern still hier drin.\n      console.warn(`Kalender ${id}: ${JSON.stringify(eintrag.errors)}`);\n      continue;\n    }\n    googleOk = true;\n    for (const b of eintrag.busy ?? []) {\n      belegt.push([new Date(b.start).getTime(), new Date(b.end).getTime()]);\n    }\n  }\n} else {\n  console.warn(`Google freeBusy fehlgeschlagen: HTTP ${google?.statusCode}`);\n}\n\n// Ohne verwertbare Kalenderauskunft darf hier NICHTS vorgeschlagen werden.\n// Ein Termin mitten in einem bestehenden Meeting ist schlimmer als die\n// ehrliche Auskunft, dass es gerade nicht geht.\nif (!googleOk) {\n  return [{ json: {\n    ok: false,\n    vorschlaege: [],\n    ansage: 'Ich komme gerade nicht an den Kalender. Ich notiere Ihren Terminwunsch, und Damjan meldet sich dazu.',\n  } }];\n}\n\nfor (const s of regeln.sperrzeiten ?? []) {\n  belegt.push([new Date(s.starts_at).getTime(), new Date(s.ends_at).getTime()]);\n}\nfor (const v of regeln.schon_vergeben ?? []) {\n  belegt.push([new Date(v.starts_at).getTime(), new Date(v.ends_at).getTime()]);\n}\n\nbelegt.sort((a, b) => a[0] - b[0]);\n\nconst kollidiert = (start, ende) =>\n  belegt.some(([bs, be]) => start < be && ende > bs);\n\n// --- Sprechzeiten je Tag durchgehen ----------------------------------------\n\n// Wanduhrzeit in Berlin -> echter Zeitpunkt. Der Versatz zu UTC ist nicht\n// konstant (Sommerzeit), also wird er für den jeweiligen Tag bestimmt.\nfunction berlin(jahr, monat, tag, stunde, minute) {\n  const roh = Date.UTC(jahr, monat - 1, tag, stunde, minute);\n  const probe = new Date(roh);\n  const versatz = (new Date(probe.toLocaleString('en-US', { timeZone: ZONE })) -\n                   new Date(probe.toLocaleString('en-US', { timeZone: 'UTC' })));\n  return new Date(roh - versatz);\n}\n\nconst teile = (d) => {\n  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {\n    timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',\n  }).formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, x.value]));\n  return { jahr: +p.year, monat: +p.month, tag: +p.day };\n};\n\nconst ab  = new Date(suche.ab);\nconst bis = new Date(suche.bis);\nconst nachWochentag = new Map();\nfor (const r of regeln.sprechzeiten ?? []) {\n  if (!nachWochentag.has(r.weekday)) nachWochentag.set(r.weekday, []);\n  nachWochentag.get(r.weekday).push(r);\n}\n\nconst frei = [];\n\nfor (let tagVersatz = 0; tagVersatz < 21 && frei.length < 12; tagVersatz++) {\n  const tagDatum = new Date(ab.getTime() + tagVersatz * 86400e3);\n  if (tagDatum > bis) break;\n\n  const { jahr, monat, tag } = teile(tagDatum);\n  const wochentag = berlin(jahr, monat, tag, 12, 0).getDay();\n\n  for (const regel of nachWochentag.get(wochentag) ?? []) {\n    if (suche.tageszeit === 'vormittags' && parseInt(regel.start_time, 10) >= 12) continue;\n    if (suche.tageszeit === 'nachmittags' && parseInt(regel.start_time, 10) < 12) continue;\n\n    const [vonH, vonM] = regel.start_time.split(':').map(Number);\n    const [bisH, bisM] = regel.end_time.split(':').map(Number);\n\n    const fensterStart = berlin(jahr, monat, tag, vonH, vonM).getTime();\n    const fensterEnde  = berlin(jahr, monat, tag, bisH, bisM).getTime();\n    const raster = (regel.slot_minutes || 30) * 60e3;\n\n    for (let t = fensterStart; t + dauerMs <= fensterEnde; t += raster) {\n      if (t < ab.getTime()) continue;\n      if (kollidiert(t, t + dauerMs)) continue;\n      frei.push(new Date(t));\n      // Höchstens zwei Vorschläge pro Tag — sonst klingt es nach\n      // \"der hat ja nie was zu tun\".\n      if (frei.filter((f) => teile(f).tag === tag).length >= 2) break;\n    }\n  }\n}\n\nif (!frei.length) {\n  return [{ json: {\n    ok: true, vorschlaege: [], ansage:\n      'In den nächsten zwei Wochen ist leider nichts frei. Ich nehme Ihren Wunsch auf, und Damjan meldet sich mit einem Vorschlag.',\n  } }];\n}\n\n// --- Fertige Sätze ----------------------------------------------------------\n\nconst auswahl = frei.slice(0, 3);\nconst lang = (d) => new Intl.DateTimeFormat('de-DE', {\n  timeZone: ZONE, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',\n}).format(d);\nconst kurz = (d) => {\n  const s = new Intl.DateTimeFormat('de-DE', {\n    timeZone: ZONE, weekday: 'long', hour: 'numeric', minute: '2-digit',\n  }).format(d);\n  return s.replace(', ', ' um ').replace(':00', '') + ' Uhr';\n};\n\nreturn [{ json: {\n  ok: true,\n  dauer_minuten: suche.dauer,\n  vorschlaege: auswahl.map((d) => ({ start: d.toISOString(), lesbar: lang(d) })),\n  // Zwei Optionen am Telefon. Drei überfordern, eine wirkt wie ein Ultimatum.\n  ansage: auswahl.slice(0, 2).map(kurz).join(' oder ') +\n    (auswahl.length > 2 ? ` — sonst hätte ich auch noch ${kurz(auswahl[2])}` : ''),\n} }];\n"
+      },
+      "id": "a2000000-0000-4000-8000-000000000005",
+      "name": "Freie Fenster rechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a2000000-0000-4000-8000-000000000006",
+      "name": "An den Agent zurück",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Agent fragt nach Terminen": {
+      "main": [
+        [
+          {
+            "node": "Suchfenster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suchfenster": {
+      "main": [
+        [
+          {
+            "node": "Sprechzeiten und Sperren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprechzeiten und Sperren": {
+      "main": [
+        [
+          {
+            "node": "Google: belegte Zeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google: belegte Zeiten": {
+      "main": [
+        [
+          {
+            "node": "Freie Fenster rechnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freie Fenster rechnen": {
+      "main": [
+        [
+          {
+            "node": "An den Agent zurück",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

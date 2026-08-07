@@ -1,0 +1,83 @@
+{
+  "_kommentar": [
+    "Das wichtigste Werkzeug. Wird am Ende JEDES Gesprächs aufgerufen — auch",
+    "bei Werbeanrufen und Fehlverbindungen. Der Post-Call-Workflow ergänzt",
+    "später Transkript und Zusammenfassung, aber diese Notiz ist das, was",
+    "Damjan sofort per WhatsApp bekommt.",
+    "",
+    "Deshalb execution_mode 'immediate': die Notiz muss geschrieben sein,",
+    "bevor aufgelegt wird. Bricht die Verbindung mitten im Werkzeugaufruf ab,",
+    "fängt der Post-Call-Workflow den Fall auf."
+  ],
+  "tool_config": {
+    "type": "webhook",
+    "name": "notiz_anlegen",
+    "description": "Hält fest, worum es in diesem Anruf ging. Am Ende JEDES Gesprächs aufrufen, bevor aufgelegt wird — auch bei Werbeanrufen, auch bei Fehlverbindungen, auch wenn nichts zu tun ist.",
+    "response_timeout_secs": 15,
+    "execution_mode": "immediate",
+    "pre_tool_speech": "off",
+    "interruption_mode": "allow",
+    "tool_error_handling_mode": "hide",
+    "api_schema": {
+      "url": "${VOICE_WEBHOOK_BASE}/notiz",
+      "method": "POST",
+      "content_type": "application/json",
+      "request_headers": {
+        "X-Voice-Token": { "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}" }
+      },
+      "request_body_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name des Anrufers. 'unbekannt', wenn er ihn nicht genannt hat."
+          },
+          "firma": {
+            "type": "string",
+            "description": "Firma des Anrufers, falls genannt."
+          },
+          "thema": {
+            "type": "string",
+            "description": "Worum es ging, in höchstens acht Wörtern. Beispiel: 'Rückfrage zum Angebot Telefonassistent'."
+          },
+          "zusammenfassung": {
+            "type": "string",
+            "description": "Zwei bis vier Sätze für Damjan: was der Anrufer will, was besprochen wurde, was du zugesagt hast. Schreib so, dass er in fünf Sekunden weiß, ob er reagieren muss."
+          },
+          "dringlichkeit": {
+            "type": "integer",
+            "description": "1 = Werbung oder Irrläufer, nichts zu tun. 2 = kann warten. 3 = normal, diese Woche. 4 = sollte heute beantwortet werden. 5 = muss heute passieren, sonst entsteht Schaden. Ehrlich einschätzen — wenn alles dringend ist, ist nichts dringend."
+          },
+          "ergebnis": {
+            "type": "string",
+            "description": "Wie das Gespräch ausgegangen ist.",
+            "enum": ["nachricht", "termin", "durchgestellt", "abgewimmelt", "rueckruf", "unklar"]
+          },
+          "rueckruf_erwuenscht": {
+            "type": "boolean",
+            "description": "Ob der Anrufer einen Rückruf möchte. Bei Werbeanrufen immer false."
+          },
+          "rueckrufnummer": {
+            "type": "string",
+            "description": "Nur ausfüllen, wenn der Anrufer eine ANDERE Nummer als die des Anrufs genannt hat."
+          },
+          "email": {
+            "type": "string",
+            "description": "E-Mail-Adresse, falls der Anrufer sie genannt hat."
+          },
+          "conversation_id": {
+            "type": "string",
+            "_description": "Die ID dieses Gesprächs.",
+            "dynamic_variable": "system__conversation_id"
+          },
+          "anrufer_nummer": {
+            "type": "string",
+            "_description": "Die Nummer, von der aus angerufen wird.",
+            "dynamic_variable": "system__caller_id"
+          }
+        },
+        "required": ["thema", "zusammenfassung", "dringlichkeit", "ergebnis"]
+      }
+    }
+  }
+}

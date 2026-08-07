@@ -1,0 +1,87 @@
+{
+  "name": "40 · Notiz aus dem Gespräch",
+  "description": "Nimmt auf, worum es im Anruf ging, und reiht die WhatsApp-Meldung an Damjan ein. Läuft am Ende jedes Gesprächs — auch bei Werbeanrufen. Hier hängt man weitere Ziele an (CRM, Ticketsystem, Mail).",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 25,
+    "errorWorkflow": "voiceagent90fehler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice/notiz",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a4000000-0000-4000-8000-000000000001",
+      "name": "Agent notiert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-440, 0],
+      "webhookId": "b4000000-0000-4000-8000-000000000004"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "__CONTROL_API__/intern/notiz",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Voice-Token", "value": "={{ $json.headers['x-voice-token'] }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "id": "a4000000-0000-4000-8000-000000000002",
+      "name": "Wegschreiben und melden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-220, 0],
+      "notes": "Die Control-API legt Anruf und Nachricht an und reiht die WhatsApp-Meldung\nin voice.outbox ein. Der Bot holt sie dort ab.\n\nWerbeanrufe (ergebnis = abgewimmelt) werden protokolliert, aber nicht\ngemeldet — sonst klingelt das Handy für genau das, was der Agent\nabfangen sollte."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Agent darf hier nie einen Fehler zurückbekommen. Er ist mitten im\n// Gespräch; eine Fehlermeldung im Werkzeugergebnis bringt ihn dazu, dem\n// Anrufer etwas von technischen Problemen zu erzählen. Das interessiert\n// niemanden — die Notiz nachzureichen ist unsere Aufgabe, nicht seine.\n//\n// Geht das Schreiben schief, greift der Post-Call-Workflow: er bekommt die\n// vollständige Abschrift und legt den Anruf dann eben dort an.\n\nconst a = $input.first().json;\nconst ok = a.statusCode >= 200 && a.statusCode < 300;\n\nif (!ok) {\n  console.error(`Notiz nicht gespeichert (HTTP ${a.statusCode}): ${JSON.stringify(a.body).slice(0, 300)}`);\n}\n\nreturn [{ json: { ok: true, bestaetigung: 'Notiert.' } }];\n"
+      },
+      "id": "a4000000-0000-4000-8000-000000000003",
+      "name": "Immer bestätigen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "a4000000-0000-4000-8000-000000000004",
+      "name": "An den Agent zurück",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Agent notiert": {
+      "main": [[{ "node": "Wegschreiben und melden", "type": "main", "index": 0 }]]
+    },
+    "Wegschreiben und melden": {
+      "main": [[{ "node": "Immer bestätigen", "type": "main", "index": 0 }]]
+    },
+    "Immer bestätigen": {
+      "main": [[{ "node": "An den Agent zurück", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {}
+}
