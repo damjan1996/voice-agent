@@ -153,9 +153,18 @@ intern.post('/init', asyncH(async (req, res) => {
   const wirkModus = gesperrt ? 'aus' : z.modus;
 
   // VIP darf auch dann durchgestellt werden, wenn allgemein nur notiert wird.
-  const durchstellen =
-    !gesperrt &&
-    (z.durchstellen_moeglich || (kontakt?.vip && z.modus === 'nur_notiz' && z.durchstellen_erlaubt));
+  // Der Systemprompt kennt diese Ausnahme ausdrücklich — er richtet sich nach
+  // durchstellen_moeglich, nicht allein nach dem Modus.
+  //
+  // Die Tagesobergrenze gilt aber auch hier: Sie ist der Schutz gegen einen
+  // hartnäckigen Anrufer, und ausgerechnet ein hinterlegter Kontakt weiß, dass
+  // er durchkommt. Ohne diese Prüfung wäre die VIP-Kennzeichnung ein
+  // Freifahrtschein.
+  const unterGrenze = z.durchstellen_heute < z.durchstellen_limit;
+  const vipAusnahme = Boolean(kontakt?.vip) && z.modus === 'nur_notiz'
+    && z.durchstellen_erlaubt && unterGrenze;
+
+  const durchstellen = !gesperrt && (z.durchstellen_moeglich || vipAusnahme);
 
   // Den Anruf sofort vermerken. Die conversation_id kennen wir hier noch
   // nicht — sie kommt erst mit dem ersten Werkzeugaufruf. Deshalb wird die
@@ -184,16 +193,28 @@ intern.post('/init', asyncH(async (req, res) => {
       [kontakt.id]).catch(() => {});
   }
 
-  const hinweis = gesperrt ? null : (z.hinweis || '');
+  // Leerstring, nie null: Die dynamischen Variablen gehen so an ElevenLabs,
+  // und dort ist ein null ein fehlender Wert — der Anruf bricht dann mit
+  // "missing required dynamic variables" ab. Ausgerechnet bei gesperrten
+  // Anrufern, wo bisher null gesetzt wurde.
+  const hinweis = gesperrt ? '' : (z.hinweis || '');
+
+  // Bei einem gesperrten Anrufer bleibt der hinterlegte Name innen.
+  // Kontaktnamen sind Damjans private Notiz — wer jemanden als "Nerviger
+  // Anrufer" oder "SEO-Spam" einträgt, will nicht, dass der Agent die Person
+  // genau so begrüßt. Dasselbe gilt für die Notiz zum Kontakt.
+  const nameFuerAgent = gesperrt ? null : (kontakt?.name ?? null);
 
   res.json({
     type: 'conversation_initiation_client_data',
     dynamic_variables: {
       modus: wirkModus,
-      anrufer_name: kontakt?.name ?? 'unbekannt',
-      anrufer_bekannt: kontakt ? 'ja' : 'nein',
-      anrufer_notiz: [kontakt?.relation, kontakt?.company, kontakt?.notes]
-        .filter(Boolean).join(' · ') || 'nichts hinterlegt',
+      anrufer_name: nameFuerAgent ?? 'unbekannt',
+      anrufer_bekannt: !gesperrt && kontakt ? 'ja' : 'nein',
+      anrufer_notiz: gesperrt
+        ? 'nichts hinterlegt'
+        : ([kontakt?.relation, kontakt?.company, kontakt?.notes]
+            .filter(Boolean).join(' · ') || 'nichts hinterlegt'),
       status_hinweis: hinweis,
       durchstellen_moeglich: durchstellen ? 'ja' : 'nein',
       heute: new Intl.DateTimeFormat('de-DE', {
@@ -204,7 +225,7 @@ intern.post('/init', asyncH(async (req, res) => {
     conversation_config_override: {
       agent: {
         first_message: ersterSatz({
-          modus: wirkModus, name: kontakt?.name, hinweis, stunde: jetzt.stunde,
+          modus: wirkModus, name: nameFuerAgent, hinweis, stunde: jetzt.stunde,
         }),
       },
     },
@@ -301,13 +322,16 @@ intern.post('/termin', asyncH(async (req, res) => {
       bestaetigung: `Eingetragen: ${formatiere(t.starts_at)}.`,
     });
   } catch (err) {
-    if (err.code === '23505') {
+    // 23505 = eindeutiger Index (gleiche Startzeit),
+    // 23P01 = Ausschluss-Constraint (überlappender Zeitraum).
+    // Beide bedeuten dasselbe für den Anrufer: der Platz ist weg.
+    if (err.code === '23505' || err.code === '23P01') {
       return res.status(409).json({
         ok: false,
         grund: 'belegt',
         // Wortlaut für den Agent — er soll das vorlesen können, ohne zu
         // improvisieren.
-        bestaetigung: 'Der Termin ist mir gerade weggeschnappt worden. Ich suche einen anderen.',
+        bestaetigung: 'Der Zeitpunkt ist inzwischen belegt. Ich suche einen anderen.',
       });
     }
     throw err;
@@ -362,15 +386,23 @@ intern.post('/notiz', asyncH(async (req, res) => {
   const nummer = normalisiereNummer(b.anrufer_nummer);
   const name = String(b.name ?? '').trim() || null;
 
-  const { callId, nachrichtId } = await tx(async (client) => {
+  const { callId, nachrichtId, neu } = await tx(async (client) => {
     // Der Anruf ist unter "sid:…" vorgemerkt, sobald der Vorab-Webhook lief.
     // Jetzt kommt zum ersten Mal die conversation_id dazu. Beide Schlüssel
     // zusammenzuführen geht nur hier — deshalb erst versuchen zu ergänzen,
     // dann als neue Zeile anlegen.
+    // Der zweite Zweig ist der Rückfall, wenn die conversation_id noch nicht
+    // zugeordnet ist: Dann wird der laufende Anruf derselben Nummer gesucht.
+    //
+    // "$2 IS NOT NULL" ist dabei entscheidend. Ohne die Bedingung wird aus
+    // "caller_number IS NOT DISTINCT FROM NULL" ein Treffer auf JEDEN anderen
+    // Anruf mit unterdrückter Nummer der letzten halben Stunde — die Notiz
+    // des zweiten anonymen Anrufers landete dann auf dem Datensatz des
+    // ersten. Zwei Werbeanrufe hintereinander reichen dafür.
     const vorhanden = await client.query(
       `SELECT id FROM voice.calls
         WHERE conversation_id = $1
-           OR (status = 'laufend' AND caller_number IS NOT DISTINCT FROM $2
+           OR ($2::text IS NOT NULL AND status = 'laufend' AND caller_number = $2
                AND started_at > now() - interval '30 minutes')
         ORDER BY started_at DESC LIMIT 1`,
       [b.conversation_id ?? null, nummer]);
@@ -414,26 +446,61 @@ intern.post('/notiz', asyncH(async (req, res) => {
     // Werbung wird protokolliert, aber nicht als Aufgabe geführt. Sonst
     // wächst die Nachrichtenliste mit Dingen, die niemand je abhakt.
     let nid = null;
+    let neu = false;
+
     if (ergebnis !== 'abgewimmelt') {
-      const n = await client.query(`
-        INSERT INTO voice.messages
-          (call_id, conversation_id, caller_name, caller_number, subject, body,
-           urgency, callback_requested)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-        [id, b.conversation_id ?? null, name, normalisiereNummer(b.rueckrufnummer) ?? nummer,
-         thema, zusammenfassung, dringlichkeit, Boolean(b.rueckruf_erwuenscht)]);
-      nid = n.rows[0].id;
+      // Ruft der Agent notiz_anlegen zweimal für dasselbe Gespräch auf — etwa
+      // weil er nach einem Zeitüberlauf wiederholt —, wird die vorhandene
+      // Nachricht überschrieben statt eine zweite angelegt. Sonst stünde
+      // derselbe Anruf doppelt in der Liste und Damjan bekäme zwei
+      // WhatsApp-Meldungen.
+      const bestand = b.conversation_id
+        ? await client.query(
+            `SELECT id FROM voice.messages WHERE conversation_id = $1 AND handled = FALSE LIMIT 1`,
+            [b.conversation_id])
+        : { rows: [] };
+
+      if (bestand.rows.length) {
+        nid = bestand.rows[0].id;
+        await client.query(`
+          UPDATE voice.messages
+             SET caller_name = COALESCE($2, caller_name),
+                 caller_number = COALESCE($3, caller_number),
+                 subject = $4, body = $5, urgency = $6, callback_requested = $7
+           WHERE id = $1`,
+          [nid, name, normalisiereNummer(b.rueckrufnummer) ?? nummer,
+           thema, zusammenfassung, dringlichkeit, Boolean(b.rueckruf_erwuenscht)]);
+      } else {
+        const n = await client.query(`
+          INSERT INTO voice.messages
+            (call_id, conversation_id, caller_name, caller_number, subject, body,
+             urgency, callback_requested)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [id, b.conversation_id ?? null, name, normalisiereNummer(b.rueckrufnummer) ?? nummer,
+           thema, zusammenfassung, dringlichkeit, Boolean(b.rueckruf_erwuenscht)]);
+        nid = n.rows[0].id;
+        neu = true;
+      }
     }
 
-    return { callId: id, nachrichtId: nid };
+    return { callId: id, nachrichtId: nid, neu };
   });
 
   // Werbung meldet der Agent nicht weiter — dafür ist er ja da.
-  if (ergebnis !== 'abgewimmelt') {
+  // Und nur bei einer NEUEN Nachricht: Ein wiederholter Aufruf hat oben
+  // die vorhandene aktualisiert, eine zweite Meldung wäre nur Lärm.
+  if (ergebnis !== 'abgewimmelt' && neu) {
     const symbol = dringlichkeit >= 4 ? '🔴' : dringlichkeit <= 2 ? '⚪' : '🟠';
     const wer = name || nummer || 'Unbekannt';
+
+    // Die Nummer für den Rückruf: was der Anrufer genannt hat, sonst die,
+    // von der er anruft. Früher hing die ganze Zeile an der Anrufernummer —
+    // bei unterdrückter Rufnummer stand dann "Rückruf erbeten" ohne Nummer,
+    // obwohl der Agent extra danach gefragt hatte. Genau im einzigen Fall,
+    // in dem die Angabe unverzichtbar ist, fehlte sie.
+    const rueckrufnummer = normalisiereNummer(b.rueckrufnummer) ?? nummer;
     const rueckruf = b.rueckruf_erwuenscht
-      ? `\n↩️ Rückruf erbeten${nummer ? ` — ${normalisiereNummer(b.rueckrufnummer) ?? nummer}` : ''}`
+      ? `\n↩️ Rückruf erbeten${rueckrufnummer ? ` — ${rueckrufnummer}` : ' (keine Nummer hinterlassen)'}`
       : '';
     await query(`SELECT voice.melde($1,$2,$3,$4)`, [
       `${symbol} *Anruf von ${wer}*\n_${thema}_\n\n${zusammenfassung}${rueckruf}` +
@@ -585,6 +652,22 @@ intern.post('/postcall', asyncH(async (req, res) => {
     d.metadata?.phone_call?.external_number ?? d.conversation_initiation_client_data?.dynamic_variables?.system__caller_id,
   );
 
+  // Wurde durchgestellt?
+  //
+  // Das lässt sich nur hier feststellen. Der Agent ruft transfer_to_number
+  // auf und ist damit aus dem Gespräch — notiz_anlegen kommt danach nicht
+  // mehr, also blieb calls.transferred bisher immer false. Damit stand
+  // transfers_today() dauerhaft auf 0 und die Tagesobergrenze für
+  // Weiterleitungen griff nie. Ein hartnäckiger Anrufer konnte zehnmal
+  // durchgestellt werden, obwohl fünf das Maximum sein sollten.
+  //
+  // Das Transkript ist die einzige verlässliche Spur. Gezählt wird jeder
+  // Aufruf, auch ein fehlgeschlagener — bei einer Schutzgrenze ist die
+  // vorsichtige Richtung die richtige.
+  const durchgestellt = (d.transcript ?? []).some((t) =>
+    (t.tool_calls ?? []).some((tc) => (tc.tool_name ?? tc.name) === 'transfer_to_number'),
+  );
+
   // Der Werkzeugaufruf notiz_anlegen hat die Zeile meist schon angelegt,
   // aber unter der conversation_id. Der Vorab-Webhook kannte nur die
   // call_sid. Beide zusammenführen, bevor geschrieben wird.
@@ -599,8 +682,10 @@ intern.post('/postcall', asyncH(async (req, res) => {
 
   const { rows } = await query(`
     INSERT INTO voice.calls (conversation_id, agent_id, caller_number, status, ended_at,
-                             duration_seconds, transcript, analysis, cost_credits, raw_payload)
-    VALUES ($1,$2,$3,'beendet', now(), $4, $5::jsonb, $6::jsonb, $7, $8::jsonb)
+                             duration_seconds, transcript, analysis, cost_credits, raw_payload,
+                             transferred, outcome)
+    VALUES ($1,$2,$3,'beendet', now(), $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9,
+            CASE WHEN $9 THEN 'durchgestellt'::voice.call_outcome ELSE NULL END)
     ON CONFLICT (conversation_id) DO UPDATE SET
       status           = 'beendet',
       ended_at         = COALESCE(voice.calls.ended_at, now()),
@@ -609,17 +694,23 @@ intern.post('/postcall', asyncH(async (req, res) => {
       transcript       = COALESCE(EXCLUDED.transcript, voice.calls.transcript),
       analysis         = COALESCE(EXCLUDED.analysis, voice.calls.analysis),
       cost_credits     = COALESCE(EXCLUDED.cost_credits, voice.calls.cost_credits),
-      raw_payload      = COALESCE(EXCLUDED.raw_payload, voice.calls.raw_payload)
-    RETURNING id, caller_name, caller_number, topic, urgency, outcome, summary`,
+      raw_payload      = COALESCE(EXCLUDED.raw_payload, voice.calls.raw_payload),
+      -- Nur setzen, nie zurücknehmen: Hat notiz_anlegen es schon vermerkt,
+      -- bleibt es dabei, auch wenn das Transkript den Aufruf nicht zeigt.
+      transferred      = (voice.calls.transferred OR EXCLUDED.transferred),
+      outcome          = COALESCE(voice.calls.outcome, EXCLUDED.outcome)
+    RETURNING id, caller_name, caller_number, topic, urgency, outcome, summary, transferred`,
     [gespraechId, d.agent_id ?? null, nummer,
      d.metadata?.call_duration_secs ?? null,
      d.transcript ? JSON.stringify(d.transcript) : null,
      d.analysis ? JSON.stringify(d.analysis) : null,
      d.metadata?.cost ?? null,
-     JSON.stringify({ metadata: d.metadata ?? null, analysis: d.analysis ?? null })]);
+     JSON.stringify({ metadata: d.metadata ?? null, analysis: d.analysis ?? null }),
+     durchgestellt]);
 
   const anruf = rows[0];
-  await audit('elevenlabs', 'call.postcall', { conversation_id: gespraechId, call_id: anruf.id });
+  await audit('elevenlabs', 'call.postcall',
+    { conversation_id: gespraechId, call_id: anruf.id, durchgestellt });
 
   // n8n bekommt zurück, was es zum Zusammenfassen braucht. Ob überhaupt
   // zusammengefasst werden muss, entscheidet der Workflow: hat der Agent
@@ -630,6 +721,7 @@ intern.post('/postcall', asyncH(async (req, res) => {
     call_id: anruf.id,
     conversation_id: gespraechId,
     hat_notiz: Boolean(anruf.topic),
+    durchgestellt: anruf.transferred,
     ergebnis: anruf.outcome,
     dringlichkeit: anruf.urgency,
     anrufer: anruf.caller_name ?? anruf.caller_number ?? 'unbekannt',

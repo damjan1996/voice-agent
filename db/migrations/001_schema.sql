@@ -4,6 +4,13 @@
 --  Alles liegt im Schema "voice". Der Rest der Datenbank bleibt unberührt,
 --  damit dieselbe Postgres-Instanz später weitere Dienste tragen kann.
 --
+--  ALLE Migrationen in diesem Verzeichnis sind wiederholt ausführbar und
+--  laufen immer vollständig durch — es gibt bewusst keine Versionstabelle.
+--  Der Preis: Jede Anweisung muss ein IF NOT EXISTS oder ein Äquivalent
+--  tragen. Der Gewinn: Es gibt keinen Zustand, der zwischen Buchführung und
+--  Wirklichkeit auseinanderlaufen kann, und ein halb durchgelaufener Satz
+--  lässt sich einfach wiederholen.
+--
 --  Der Kern ist die Tabelle agent_state: genau eine Zeile, die den Betriebs-
 --  modus hält. Sie ist der Schalter, den WhatsApp umlegt und den jeder
 --  eingehende Anruf zuerst liest. Bewusst eine Tabelle und keine n8n-
@@ -14,6 +21,26 @@
 
 CREATE SCHEMA IF NOT EXISTS voice;
 SET search_path TO voice, public;
+
+-- -----------------------------------------------------------------------------
+--  Aufzählungstypen anlegen, falls sie fehlen
+-- -----------------------------------------------------------------------------
+--  CREATE TYPE kennt kein IF NOT EXISTS. Ohne diesen Umweg bricht jeder
+--  zweite Lauf von "make migrate" gleich in der ersten Anweisung ab — und
+--  genau das ist der Lauf, den man beim Aktualisieren macht.
+
+CREATE OR REPLACE FUNCTION voice.typ_anlegen(p_name TEXT, p_werte TEXT)
+RETURNS VOID AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_type t
+          JOIN pg_namespace n ON n.oid = t.typnamespace
+         WHERE t.typname = p_name AND n.nspname = 'voice'
+    ) THEN
+        EXECUTE format('CREATE TYPE voice.%I AS ENUM (%s)', p_name, p_werte);
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
 
 -- -----------------------------------------------------------------------------
 --  Betriebsmodus
@@ -28,7 +55,7 @@ SET search_path TO voice, public;
 --              im Mobilfunknetz lässt sich nicht per API abschalten, also
 --              muss auch der Aus-Zustand einen definierten Anruf-Ausgang haben.
 
-CREATE TYPE voice.agent_mode AS ENUM ('aktiv', 'nur_notiz', 'aus');
+SELECT voice.typ_anlegen('agent_mode', $$'aktiv', 'nur_notiz', 'aus'$$);
 
 CREATE TABLE IF NOT EXISTS voice.agent_state (
     id                  SMALLINT     PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -65,15 +92,8 @@ INSERT INTO voice.agent_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 --  vom Post-Call-Webhook vervollständigt. Zwei Schreiber auf derselben Zeile,
 --  deshalb ist conversation_id eindeutig und alle Updates laufen als UPSERT.
 
-CREATE TYPE voice.call_status AS ENUM ('laufend', 'beendet', 'fehlgeschlagen', 'abgebrochen');
-CREATE TYPE voice.call_outcome AS ENUM (
-    'nachricht',        -- Anliegen aufgenommen
-    'termin',           -- Termin vereinbart
-    'durchgestellt',    -- an Damjan weitergeleitet
-    'abgewimmelt',      -- Werbung/Spam, bewusst nicht weitergegeben
-    'rueckruf',         -- Rückruf zugesagt
-    'unklar'
-);
+SELECT voice.typ_anlegen('call_status', $$'laufend', 'beendet', 'fehlgeschlagen', 'abgebrochen'$$);
+SELECT voice.typ_anlegen('call_outcome', $$'nachricht', 'termin', 'durchgestellt', 'abgewimmelt', 'rueckruf', 'unklar'$$);
 
 CREATE TABLE IF NOT EXISTS voice.calls (
     id                  BIGSERIAL    PRIMARY KEY,
@@ -106,7 +126,6 @@ CREATE TABLE IF NOT EXISTS voice.calls (
     cost_credits        INTEGER,
 
     transferred         BOOLEAN      NOT NULL DEFAULT FALSE,
-    notified_at         TIMESTAMPTZ, -- wann die WhatsApp-Meldung rausging
 
     raw_payload         JSONB,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -116,7 +135,6 @@ CREATE TABLE IF NOT EXISTS voice.calls (
 CREATE INDEX IF NOT EXISTS calls_started_idx  ON voice.calls (started_at DESC);
 CREATE INDEX IF NOT EXISTS calls_caller_idx   ON voice.calls (caller_number);
 CREATE INDEX IF NOT EXISTS calls_status_idx   ON voice.calls (status) WHERE status = 'laufend';
-CREATE INDEX IF NOT EXISTS calls_open_idx     ON voice.calls (notified_at) WHERE notified_at IS NULL;
 
 -- -----------------------------------------------------------------------------
 --  Kontakte
@@ -176,7 +194,7 @@ CREATE INDEX IF NOT EXISTS messages_open_idx ON voice.messages (created_at DESC)
 --  Der Agent legt Termine als "vorgemerkt" an. Ob daraus ein Kalendereintrag
 --  wird, entscheidet der Workflow — und bei Bedarf Damjan per WhatsApp.
 
-CREATE TYPE voice.booking_status AS ENUM ('vorgemerkt', 'bestaetigt', 'abgelehnt', 'abgesagt');
+SELECT voice.typ_anlegen('booking_status', $$'vorgemerkt', 'bestaetigt', 'abgelehnt', 'abgesagt'$$);
 
 CREATE TABLE IF NOT EXISTS voice.bookings (
     id                  BIGSERIAL    PRIMARY KEY,

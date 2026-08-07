@@ -57,11 +57,56 @@ export function berlinZeitpunkt({ jahr, monat, tag, stunde = 0, minute = 0 }) {
   return new Date(ts);
 }
 
-/** Versatz der Zeitzone gegenüber UTC in Minuten, für diesen Zeitpunkt. */
+/**
+ * Verschiebt ein Kalenderdatum um n Tage.
+ *
+ * Bewusst über Date.UTC statt über Millisekunden: Ein Berliner Tag hat in
+ * den beiden Umstellungsnächten 23 bzw. 25 Stunden. Wer 86 400 000 ms
+ * addiert, landet dann eine Stunde daneben — und weil hier von 23:59
+ * gerechnet wird, kippt diese Stunde über Mitternacht in den falschen Tag.
+ * "/agent aus bis morgen" am 28. März hätte den Agent einen Tag zu lang
+ * abgeschaltet.
+ *
+ * UTC kennt keine Sommerzeit, deshalb ist die Rechnung dort exakt; Monats-
+ * und Jahreswechsel erledigt Date.UTC von selbst.
+ */
+function tagePlus({ jahr, monat, tag }, n) {
+  const d = new Date(Date.UTC(jahr, monat - 1, tag + n));
+  return { jahr: d.getUTCFullYear(), monat: d.getUTCMonth() + 1, tag: d.getUTCDate() };
+}
+
+/** Wochentag eines Kalenderdatums. 0 = Sonntag. */
+function wochentagVon({ jahr, monat, tag }) {
+  return new Date(Date.UTC(jahr, monat - 1, tag)).getUTCDay();
+}
+
+// Liefert den Zonenversatz als Text, z.B. "GMT+02:00". Der Formatierer wird
+// einmal gebaut und wiederverwendet — er ist teuer, und diese Funktion läuft
+// bei jeder Terminberechnung mehrfach.
+const VERSATZ_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: ZEITZONE,
+  timeZoneName: 'longOffset',
+});
+
+/**
+ * Versatz der Zeitzone gegenüber UTC in Minuten, für diesen Zeitpunkt.
+ *
+ * Der naheliegende Weg — dasselbe Datum einmal als Berlin und einmal als UTC
+ * formatieren und die Differenz nehmen — hat einen Haken: Beide Strings
+ * werden von new Date() in der Zeitzone des SERVERS geparst. Steht die auf
+ * Europe/Berlin, fällt eine der beiden Wanduhrzeiten in der Nacht der
+ * Vorstellung in die Stunde, die es nicht gibt (02:00–03:00). Das Ergebnis
+ * ist dann um eine Stunde daneben, und zwar genau dort, wo es darauf ankommt.
+ *
+ * Intl kennt den Versatz direkt. Kein Parsen, keine Server-Zeitzone.
+ */
 function versatzMinuten(datum) {
-  const alsBerlin = new Date(datum.toLocaleString('en-US', { timeZone: ZEITZONE }));
-  const alsUtc = new Date(datum.toLocaleString('en-US', { timeZone: 'UTC' }));
-  return Math.round((alsBerlin - alsUtc) / 60_000);
+  const teil = VERSATZ_FORMAT.formatToParts(datum).find((t) => t.type === 'timeZoneName');
+  const treffer = /GMT([+-])(\d{2}):(\d{2})/.exec(teil?.value ?? '');
+  if (!treffer) return 0; // "GMT" ohne Versatz bedeutet UTC.
+  const [, vorzeichen, stunden, minuten] = treffer;
+  const betrag = Number(stunden) * 60 + Number(minuten);
+  return vorzeichen === '-' ? -betrag : betrag;
 }
 
 /**
@@ -90,7 +135,11 @@ export function zeitpunktAus(eingabe, jetzt = new Date()) {
   if (dauer) {
     const menge = Number(dauer[1].replace(',', '.'));
     if (!Number.isFinite(menge) || menge <= 0) return null;
-    const proEinheit = dauer[2].startsWith('h') || dauer[2].startsWith('std') ? 3_600_000 : 60_000;
+    // Alle Stundenformen fangen mit h oder s an (h, std, stunde, stunden),
+    // alle Minutenformen mit m. Der frühere Test auf startsWith('std') ging
+    // bei "stunden" ins Leere — daraus wurden dann drei Minuten statt drei
+    // Stunden, und der Agent schaltete viel zu früh zurück.
+    const proEinheit = /^[hs]/.test(dauer[2]) ? 3_600_000 : 60_000;
     return new Date(jetzt.getTime() + menge * proEinheit);
   }
 
@@ -100,38 +149,41 @@ export function zeitpunktAus(eingabe, jetzt = new Date()) {
     const stunde = Number(uhrzeit[1]);
     const minute = Number(uhrzeit[2] ?? 0);
     if (stunde > 23 || minute > 59) return null;
-    let ziel = berlinZeitpunkt({ ...heute, stunde, minute });
     // Eine bereits vergangene Uhrzeit meint den nächsten Tag.
-    if (ziel <= jetzt) ziel = new Date(ziel.getTime() + 86_400_000);
-    return ziel;
+    const tagDavon = berlinZeitpunkt({ ...heute, stunde, minute }) <= jetzt
+      ? tagePlus(heute, 1)
+      : heute;
+    return berlinZeitpunkt({ ...tagDavon, stunde, minute });
   }
 
   // --- Tagesbezug -----------------------------------------------------------
-  if (text === 'heute' || text === 'heute abend') {
-    return berlinZeitpunkt({ ...heute, stunde: 23, minute: 59 });
-  }
-  if (text === 'morgen') {
-    const m = new Date(berlinZeitpunkt({ ...heute, stunde: 23, minute: 59 }).getTime() + 86_400_000);
-    return m;
-  }
-  if (text === 'übermorgen' || text === 'uebermorgen') {
-    return new Date(berlinZeitpunkt({ ...heute, stunde: 23, minute: 59 }).getTime() + 2 * 86_400_000);
-  }
+  //  Immer erst das Kalenderdatum bestimmen, dann daraus den Zeitpunkt.
+  //  Nie umgekehrt — siehe tagePlus().
+  const tagesEnde = (versatz) => berlinZeitpunkt({ ...tagePlus(heute, versatz), stunde: 23, minute: 59 });
+
+  if (text === 'heute' || text === 'heute abend') return tagesEnde(0);
+  if (text === 'morgen') return tagesEnde(1);
+  if (text === 'übermorgen' || text === 'uebermorgen') return tagesEnde(2);
 
   // --- Wochentag ------------------------------------------------------------
   const TAGE = ['sonntag', 'montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag'];
   const wochentag = TAGE.indexOf(text);
   if (wochentag >= 0) {
-    const heuteEnde = berlinZeitpunkt({ ...heute, stunde: 23, minute: 59 });
-    const heutigerIndex = new Date(heuteEnde).getDay();
+    // Den Wochentag aus dem Berliner Kalenderdatum ableiten, nicht aus
+    // getDay() eines Zeitpunkts — das läse die Zeitzone des Servers.
+    const heutigerIndex = wochentagVon(heute);
     // Immer der KOMMENDE Tag dieses Namens, nie heute.
     const abstand = ((wochentag - heutigerIndex + 7) % 7) || 7;
-    return new Date(heuteEnde.getTime() + abstand * 86_400_000);
+    return tagesEnde(abstand);
   }
 
   // --- ISO ------------------------------------------------------------------
+  //  new Date(text), nicht new Date(eingabe): Geprüft wird der bereinigte
+  //  Text, also der ohne führendes "bis". Gäbe man die Rohfassung weiter,
+  //  scheiterte ausgerechnet die dokumentierte Schreibweise
+  //  "bis 2026-08-09T14:00:00+02:00" an einem Invalid Date.
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
-    const d = new Date(eingabe);
+    const d = new Date(text);
     return Number.isNaN(d.getTime()) ? null : d;
   }
 

@@ -82,10 +82,15 @@ async function einmalHolen(client) {
 
       try {
         await client.sendMessage(ziel, m.text);
+        // Erst jetzt gilt sie als zugestellt. Bis zu dieser Bestätigung steht
+        // sie auf "in_zustellung" und käme nach fünf Minuten von selbst
+        // zurück in die Schlange — etwa wenn dieser Prozess mitten in der
+        // Schleife stirbt.
+        await ruf(`/v1/ausgang/${m.id}/gesendet`, { method: 'POST' });
         log(`Meldung ${m.id} an ${ziel} (${m.anlass}, Dringlichkeit ${m.dringlichkeit})`);
       } catch (err) {
-        // Zurück in die Schlange. Die Datenbank staffelt die Abstände und
-        // gibt nach fünf Versuchen auf.
+        // Zurück in die Schlange. Die Datenbank staffelt die Abstände, hält
+        // die Nachtruhe ein und gibt nach fünf Versuchen auf.
         log(`Meldung ${m.id} nicht zugestellt: ${err.message}`);
         await ruf(`/v1/ausgang/${m.id}/fehler`, {
           method: 'POST', body: JSON.stringify({ grund: String(err.message).slice(0, 400) }),

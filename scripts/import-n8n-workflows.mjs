@@ -29,7 +29,7 @@
 //    node scripts/import-n8n-workflows.mjs --nur=10-anruf-start
 // =============================================================================
 
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,9 @@ const ORDNER = path.join(WURZEL, 'n8n', 'workflows');
 const argumente = process.argv.slice(2);
 const TROCKEN = argumente.includes('--dry-run');
 const NUR = argumente.find((a) => a.startsWith('--nur='))?.slice(6) ?? null;
+// Nur das Register in der Datenbank auffrischen, ohne Workflows anzufassen.
+// Nützlich, wenn jemand in n8n von Hand etwas umbenannt hat.
+const NUR_REGISTER = argumente.includes('--nur-register');
 
 const farbe = process.stdout.isTTY;
 const c = (code, s) => (farbe ? `[${code}m${s}[0m` : s);
@@ -158,6 +161,101 @@ async function n8n(pfad, { method = 'GET', body } = {}) {
   return daten;
 }
 
+/**
+ * Legt die Zugangsdaten an, mit denen die Webhooks sich absichern.
+ *
+ * Ohne Authentifizierung am Webhook nimmt n8n jede Anfrage aus dem Internet
+ * an, startet den Workflow und lässt ihn erst beim Aufruf der Control-API
+ * mit 401 scheitern. Jede dieser Anfragen erzeugt dann eine gescheiterte
+ * Ausführung samt gespeicherter Nutzlast und löst den Fehler-Workflow aus —
+ * der wiederum eine WhatsApp-Meldung schreibt. Ein einzelner Angreifer
+ * könnte damit die Warteschlange fluten und die Platte vollschreiben.
+ *
+ * Mit Header-Auth lehnt n8n unbefugte Anfragen direkt mit 403 ab: kein
+ * Workflow, keine Ausführung, keine Meldung.
+ */
+async function credentialSicherstellen({ merkname, anzeige, kopfName, wert, zweck }) {
+  // Die Public API kann Zugangsdaten anlegen, aber nicht auflisten. Ein
+  // zweiter Lauf würde also ein Duplikat erzeugen — deshalb wird die ID
+  // gemerkt und wiederverwendet.
+  const merkdatei = path.join(WURZEL, 'n8n', merkname);
+  if (existsSync(merkdatei)) {
+    const id = (await readFile(merkdatei, 'utf8')).trim();
+    if (id) { info(`${anzeige} vorhanden (${id})`); return id; }
+  }
+
+  if (!wert) {
+    warn(`${anzeige}: kein Wert in der .env — übersprungen.`);
+    warn(`  ${zweck}`);
+    return null;
+  }
+
+  if (TROCKEN) { info(`würde ${anzeige} anlegen`); return null; }
+
+  try {
+    const neu = await n8n('/credentials', {
+      method: 'POST',
+      body: { name: anzeige, type: 'httpHeaderAuth', data: { name: kopfName, value: wert } },
+    });
+    await writeFile(merkdatei, `${neu.id}\n`, 'utf8');
+    gut(`${anzeige} angelegt (${neu.id})`);
+    return neu.id;
+  } catch (err) {
+    warn(`${anzeige} nicht angelegt: ${err.message}`);
+    warn(`  ${zweck}`);
+    return null;
+  }
+}
+
+async function zugangsdatenSicherstellen(env) {
+  const webhook = await credentialSicherstellen({
+    merkname: '.credential-id',
+    anzeige: 'Voice-Agent Webhook-Token',
+    kopfName: 'X-Voice-Token',
+    wert: env.VOICE_WEBHOOK_TOKEN,
+    zweck: 'Ohne sie bleiben die Webhooks unauthentifiziert — im n8n-Editor nachtragen.',
+  });
+
+  const anthropic = await credentialSicherstellen({
+    merkname: '.anthropic-cred-id',
+    anzeige: 'Anthropic (Voice-Agent)',
+    kopfName: 'x-api-key',
+    wert: env.ANTHROPIC_API_KEY,
+    zweck: 'Ohne sie kann die Nachbereitung Gespräche nicht zusammenfassen.',
+  });
+
+  return { webhook, anthropic };
+}
+
+/**
+ * Hängt die Zugangsdaten an die Nodes, die sie brauchen.
+ *
+ *   Webhook-Nodes  bekommen Header-Auth, damit n8n unbefugte Anfragen mit 403
+ *                  abweist, statt den Workflow zu starten.
+ *   Anthropic-Node bekommt den API-Schlüssel. Fehlt er, scheitert die
+ *                  Nachbereitung still — der Anruf steht in der Datenbank,
+ *                  aber ohne Zusammenfassung.
+ */
+function zugangsdatenAnhaengen(workflow, { webhook, anthropic }) {
+  for (const node of workflow.nodes) {
+    if (node.type === 'n8n-nodes-base.webhook' && webhook) {
+      node.parameters = { ...node.parameters, authentication: 'headerAuth' };
+      node.credentials = {
+        ...node.credentials,
+        httpHeaderAuth: { id: webhook, name: 'Voice-Agent Webhook-Token' },
+      };
+    }
+
+    if (anthropic && node.parameters?.url?.includes('api.anthropic.com')) {
+      node.credentials = {
+        ...node.credentials,
+        httpHeaderAuth: { id: anthropic, name: 'Anthropic (Voice-Agent)' },
+      };
+    }
+  }
+  return workflow;
+}
+
 /** Ersetzt die Platzhalter im gesamten Workflow-JSON. */
 function platzhalterErsetzen(text, env, fehlerWorkflowId) {
   const ersatz = {
@@ -247,17 +345,32 @@ async function main() {
   const vorhanden = await n8n('/workflows?limit=250');
   const nachName = new Map((vorhanden?.data ?? []).map((w) => [w.name, w]));
 
-  let fehlerWorkflowId = null;
+  const credentials = NUR_REGISTER ? {} : await zugangsdatenSicherstellen(env);
+  if (!NUR_REGISTER) console.log('');
+
+  // Die ID des Fehler-Workflows aus dem Bestand vorbelegen. Wird nur eine
+  // Teilmenge importiert (--nur=20), wird der Fehler-Workflow übersprungen
+  // und fehlerWorkflowId bliebe null — der Platzhalter würde durch einen
+  // Leerstring ersetzt und der importierte Workflow verlöre seine
+  // Fehler-Verknüpfung. Ausfälle blieben dann still.
+  const fehlerName = REGISTER['90-fehlerbehandlung'].name
+    ?? '90 · Fehlerbehandlung';
+  let fehlerWorkflowId = (vorhanden?.data ?? [])
+    .find((w) => w.name.startsWith('90 ·'))?.id ?? null;
+
   const ergebnisse = [];
 
-  for (const basis of REIHENFOLGE) {
+  for (const basis of (NUR_REGISTER ? [] : REIHENFOLGE)) {
     const datei = dateien.find((f) => f.startsWith(basis));
     if (!datei) { warn(`${basis}.json nicht gefunden — übersprungen`); continue; }
     if (NUR && !basis.includes(NUR)) { info(`${basis} übersprungen (--nur)`); continue; }
 
     const eintrag = REGISTER[basis];
     const rohText = await readFile(path.join(ORDNER, datei), 'utf8');
-    const workflow = JSON.parse(platzhalterErsetzen(rohText, env, fehlerWorkflowId));
+    const workflow = zugangsdatenAnhaengen(
+      JSON.parse(platzhalterErsetzen(rohText, env, fehlerWorkflowId)),
+      credentials,
+    );
     const alt = nachName.get(workflow.name);
 
     if (TROCKEN) {
@@ -294,9 +407,20 @@ async function main() {
     ergebnisse.push({ ...eintrag, name: workflow.name, id });
   }
 
+  // Im Nur-Register-Lauf kommen die IDs aus dem Bestand statt aus dem Import.
+  if (NUR_REGISTER) {
+    for (const [basis, eintrag] of Object.entries(REGISTER)) {
+      const nr = basis.slice(0, 2);
+      const live = (vorhanden?.data ?? []).find((w) => w.name.startsWith(`${nr} ·`));
+      if (!live) { warn(`${eintrag.slug} liegt nicht in n8n — übersprungen`); continue; }
+      ergebnisse.push({ ...eintrag, name: live.name, id: live.id, aktiv: live.active });
+    }
+    info(`${ergebnisse.length} Workflows im Bestand gefunden`);
+  }
+
   // --- Nachsehen, ob die Webhooks wirklich stehen ----------------------------
 
-  if (!TROCKEN) {
+  if (!TROCKEN && !NUR_REGISTER) {
     console.log(`\n${c(1, '▸')} ${c(1, 'Webhooks nachprüfen')}`);
     // Erst lokal: kennt n8n die Route? Das ist die Frage, die der bekannte
     // Registrierungsfehler betrifft, und sie hängt nicht an DNS.

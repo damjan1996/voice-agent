@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test test/"
+    "_test": "Zweiteilig, weil keine Variante allein beides kann: 'node --test test/' scheitert auf Node 22 immer mit MODULE_NOT_FOUND (es behandelt test/ als Datei), und 'node --test' allein meldet bei null gefundenen Tests fröhlich Erfolg. Der Test -d davor stellt sicher, dass wirklich Testdateien da sind — sonst liefe das Testziel grün durch, ohne je etwas zu prüfen. Genau das ist hier schon einmal passiert.",
+    "test": "test -n \"$(ls test/*.test.js 2>/dev/null)\" || { echo 'Keine Testdateien in test/ gefunden.' >&2; exit 1; }; node --test"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -112,8 +112,7 @@ import:
 	@node scripts/import-n8n-workflows.mjs $(args)
 
 register:
-	@node scripts/import-n8n-workflows.mjs --nur=__keiner__ 2>/dev/null || true
-	@echo "Register wird beim nächsten 'make import' mitgeschrieben."
+	@node scripts/import-n8n-workflows.mjs --nur-register
 
 # -----------------------------------------------------------------------------
 #  Prüfen
@@ -122,8 +121,11 @@ register:
 pruefen:
 	@bash scripts/pruefen.sh
 
+# Auf dem Host, nicht im Container: Das Image enthält nur src/, kein test/.
+# Im Container fand "node --test" deshalb null Tests und meldete trotzdem
+# Erfolg — ein Testziel, das nie etwas prüft, ist schlimmer als keines.
 test:
-	@$(COMPOSE) exec -T control-api npm test
+	@cd control-api && npm test
 
 test-anruf:
 	@node scripts/test-anruf.mjs $(args)
@@ -132,17 +134,24 @@ test-anruf:
 #  Daten
 # -----------------------------------------------------------------------------
 
+# pipefail und Größenprüfung sind hier keine Förmlichkeit: Ohne sie ist der
+# Exit-Code der von gzip, nicht der von pg_dumpall. Ein gescheiterter Dump
+# hinterließ dann eine gültige, leere .sql.gz und die Meldung "Gesichert" —
+# per Cron mit >/dev/null vollständig lautlos. Aufgefallen wäre das erst beim
+# Wiederherstellen, also im schlechtesten Moment.
 sichern:
-	@mkdir -p backups
-	@ziel="backups/voiceagent-$$(date +%Y%m%d-%H%M%S).sql.gz"; \
-	$(COMPOSE) exec -T postgres pg_dumpall -U $(or $(DB_USER),voiceagent) | gzip > "$$ziel"; \
-	echo -e "$(GRUEN)Gesichert:$(AUS) $$ziel ($$(du -h "$$ziel" | cut -f1))"
+	@bash scripts/sichern.sh
 
 wiederherstellen:
 	@test -n "$(datei)" || { echo "Aufruf: make wiederherstellen datei=backups/....sql.gz"; exit 1; }
+	@test -f "$(datei)" || { echo -e "$(GELB)Datei nicht gefunden: $(datei)$(AUS)"; exit 1; }
+	@gzip -t "$(datei)" || { echo -e "$(GELB)Datei ist kein gültiges gzip.$(AUS)"; exit 1; }
 	@echo -e "$(GELB)Überschreibt die aktuelle Datenbank.$(AUS)"
 	@read -p "Wirklich? [nein/ja] " a; [ "$$a" = "ja" ] || exit 1
-	@gunzip -c "$(datei)" | $(COMPOSE) exec -T postgres psql -U $(or $(DB_USER),voiceagent) -d postgres
+	@set -o pipefail; \
+	gunzip -c "$(datei)" | $(COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 \
+		-U $(or $(DB_USER),voiceagent) -d postgres \
+		|| { echo -e "$(GELB)Einspielen fehlgeschlagen — Datenbank prüfen.$(AUS)"; exit 1; }
 	@echo -e "$(GRUEN)Eingespielt.$(AUS)"
 
 sauber:

@@ -7,9 +7,14 @@
 //  bevor man mit dem eigenen Handy dagegen anruft — und ohne Gesprächsminuten
 //  zu verbrauchen.
 //
-//    node scripts/test-anruf.mjs
+//    node scripts/test-anruf.mjs                    über nginx wie ein echter Anruf
+//    node scripts/test-anruf.mjs --n8n              über das lokale n8n, ohne DNS
+//    node scripts/test-anruf.mjs --lokal            nur die Control-API
 //    node scripts/test-anruf.mjs --von +4915112345678
-//    node scripts/test-anruf.mjs --lokal      # an der Control-API vorbei an n8n
+//
+//  --n8n ist der richtige Weg, solange DNS und Zertifikat noch fehlen: Er
+//  geht durch dieselben Workflows wie ein echter Anruf, nur ohne den Umweg
+//  über das offene Internet.
 // =============================================================================
 
 import { readFile } from 'node:fs/promises';
@@ -27,6 +32,7 @@ const wert = (name, vorgabe) => {
   return i >= 0 ? argv[i + 1] : vorgabe;
 };
 const LOKAL = argv.includes('--lokal');
+const UEBER_N8N = argv.includes('--n8n');
 const VON = wert('von', '+4915199988877');
 
 async function env() {
@@ -81,9 +87,19 @@ async function post(url, body, kopf = {}) {
 
 async function main() {
   const e = await env();
-  const basis = LOKAL
-    ? `${e.CONTROL_API_URL || 'http://127.0.0.1:3010'}/intern`
-    : (e.VOICE_WEBHOOK_BASE || '').replace(/\/$/, '');
+
+  let basis;
+  let wegName;
+  if (LOKAL) {
+    basis = `${e.CONTROL_API_URL || 'http://127.0.0.1:3010'}/intern`;
+    wegName = 'direkt an die Control-API, n8n wird übersprungen';
+  } else if (UEBER_N8N) {
+    basis = `${(e.N8N_INTERN_URL || 'http://127.0.0.1:5679').replace(/\/$/, '')}/webhook/voice`;
+    wegName = 'über das lokale n8n, ohne nginx und DNS';
+  } else {
+    basis = (e.VOICE_WEBHOOK_BASE || '').replace(/\/$/, '');
+    wegName = 'über nginx und n8n, wie ein echter Anruf';
+  }
 
   if (!basis) { console.error('VOICE_WEBHOOK_BASE fehlt in der .env'); process.exit(1); }
 
@@ -91,7 +107,7 @@ async function main() {
   const gespraech = `test_${Date.now()}`;
 
   console.log(c(1, '\nAnruf simulieren'));
-  console.log(c(90, `  Weg:     ${LOKAL ? 'direkt an die Control-API' : 'über nginx und n8n'}`));
+  console.log(c(90, `  Weg:     ${wegName}`));
   console.log(c(90, `  Basis:   ${basis}`));
   console.log(c(90, `  Anrufer: ${VON}\n`));
 
@@ -166,6 +182,12 @@ async function main() {
 
   // --- Ergebnis --------------------------------------------------------------
   console.log('');
+  if (durchgefallen && !LOKAL && !UEBER_N8N) {
+    console.log(c(33, '  Der öffentliche Weg ist nicht erreichbar.'));
+    console.log(c(90, '  Solange DNS und Zertifikat fehlen, dieselbe Kette lokal testen:'));
+    console.log(c(90, '      node scripts/test-anruf.mjs --n8n\n'));
+  }
+
   if (durchgefallen === 0) {
     console.log(c(32, `  ${bestanden} Schritte in Ordnung.`));
     console.log(c(90, '  Der Testanruf steht jetzt unter "voiceagent anrufe" und die'));

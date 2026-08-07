@@ -31,6 +31,19 @@ const ganzzahl = (wert, vorgabe, max) => {
   return Math.min(n, max);
 };
 
+/**
+ * Datensatz-ID aus einem Pfadsegment.
+ *
+ * Number.isFinite allein reicht nicht: parseInt("999999999999999999999")
+ * ergibt 1e21 — eine endliche Zahl, die Postgres beim Vergleich mit einem
+ * bigint als "invalid input syntax" ablehnt. Der Aufrufer bekäme einen 500er
+ * samt rohem SQL-Text statt einer verständlichen 400.
+ */
+const datensatzId = (roh) => {
+  const n = Number.parseInt(roh, 10);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+};
+
 // =============================================================================
 //  Zustand
 // =============================================================================
@@ -201,8 +214,8 @@ router.get('/nachrichten', asyncH(async (req, res) => {
 }));
 
 router.post('/nachrichten/:id/erledigt', asyncH(async (req, res) => {
-  const id = Number.parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ fehler: 'Ungültige ID' });
+  const id = datensatzId(req.params.id);
+  if (id === null) return res.status(400).json({ fehler: 'Ungültige ID' });
 
   const { rows } = await query(`
     UPDATE voice.messages SET handled = TRUE, handled_at = now()
@@ -235,7 +248,13 @@ router.get('/termine', asyncH(async (req, res) => {
 }));
 
 router.post('/termine/:id/status', asyncH(async (req, res) => {
-  const id = Number.parseInt(req.params.id, 10);
+  const id = datensatzId(req.params.id);
+  if (id === null) return res.status(400).json({ fehler: 'Ungültige ID' });
+  // Ohne diese Prüfung geht NaN in die Abfrage und Postgres antwortet mit
+  // einem Typfehler — der Aufrufer bekäme einen 500er samt rohem SQL-Text
+  // statt einer verständlichen 400.
+  if (!Number.isFinite(id)) return res.status(400).json({ fehler: 'Ungültige ID' });
+
   const status = String(req.body?.status || '').toLowerCase();
   if (!['bestaetigt', 'abgelehnt', 'abgesagt'].includes(status)) {
     return res.status(400).json({ fehler: 'status muss bestaetigt, abgelehnt oder abgesagt sein' });
@@ -461,10 +480,14 @@ router.post('/workflows/:slug/deaktivieren',
 // =============================================================================
 //  Ausgangs-Warteschlange
 // =============================================================================
-//  Der WhatsApp-Bot holt hier ab, was der Agent auszurichten hat. Das Abholen
-//  markiert die Zeilen sofort als gesendet; klappt das Senden im Bot doch
-//  nicht, meldet er das über /fehler zurück und die Zeile geht mit Abstand
-//  erneut in die Schlange.
+//  Der WhatsApp-Bot holt hier ab, was der Agent auszurichten hat.
+//
+//  Zustellung in zwei Schritten: Das Abholen setzt "in_zustellung", erst die
+//  Bestätigung des Bots setzt "gesendet". Vorher wurde beim Abholen sofort
+//  "gesendet" gesetzt — wer zehn Meldungen holt und nach der dritten
+//  neu startet, hatte sieben verloren, während die Datenbank behauptete,
+//  sie seien zugestellt. Was länger als fünf Minuten in Zustellung hängt,
+//  gibt hole_ausgang() beim nächsten Lauf von selbst wieder frei.
 
 router.get('/ausgang', asyncH(async (req, res) => {
   const anzahl = ganzzahl(req.query.anzahl, 10, 50);
@@ -472,9 +495,16 @@ router.get('/ausgang', asyncH(async (req, res) => {
   res.json({ meldungen: rows });
 }));
 
+router.post('/ausgang/:id/gesendet', asyncH(async (req, res) => {
+  const id = datensatzId(req.params.id);
+  if (id === null) return res.status(400).json({ fehler: 'Ungültige ID' });
+  await query(`SELECT voice.ausgang_zugestellt($1)`, [id]);
+  res.json({ ok: true });
+}));
+
 router.post('/ausgang/:id/fehler', asyncH(async (req, res) => {
-  const id = Number.parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ fehler: 'Ungültige ID' });
+  const id = datensatzId(req.params.id);
+  if (id === null) return res.status(400).json({ fehler: 'Ungültige ID' });
   await query(`SELECT voice.ausgang_fehlgeschlagen($1, $2)`,
     [id, String(req.body?.grund ?? 'unbekannt').slice(0, 500)]);
   res.json({ ok: true });

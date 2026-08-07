@@ -207,28 +207,66 @@ async function wissenSicherstellen(zustand) {
   const vorhanden = await api('/convai/knowledge-base?page_size=100');
   const nachName = new Map((vorhanden?.documents ?? []).map((d) => [d.name, d]));
   const locators = [];
+  const altlasten = [];
 
   for (const datei of dateien) {
     const name = `voiceagent-${path.basename(datei, '.md')}`;
     const text = await readFile(path.join(ordner, datei), 'utf8');
     const alt = nachName.get(name);
 
-    if (alt) {
-      // Ein Textdokument lässt sich nicht in place ersetzen; alt weg, neu hin.
-      // Die Reihenfolge ist Absicht: erst das neue anlegen, dann das alte
-      // löschen wäre sauberer, scheitert aber am eindeutigen Namen.
-      if (TROCKEN) { uebersprungen(`würde ${name} ersetzen`); locators.push({ type: 'text', name, id: alt.id }); continue; }
-      await api(`/convai/knowledge-base/${alt.id}`, { method: 'DELETE', erlaubt404: true });
+    if (TROCKEN) {
+      uebersprungen(`würde ${name} ${alt ? 'ersetzen' : 'anlegen'}`);
+      locators.push({ type: 'text', name, id: alt?.id ?? 'kb_dry_run' });
+      continue;
     }
 
-    if (TROCKEN) { uebersprungen(`würde ${name} anlegen`); locators.push({ type: 'text', name, id: 'kb_dry_run' }); continue; }
-    const neu = await api('/convai/knowledge-base/text', { method: 'POST', body: { name, text } });
+    // Reihenfolge: anlegen → Agent umstellen → altes löschen.
+    //
+    // Umgekehrt (erst löschen) bliebe bei einem Abbruch dazwischen eine ID im
+    // Zustand stehen, die es nicht mehr gibt. Und sofort nach dem Anlegen
+    // löschen geht auch nicht: ElevenLabs lehnt das mit 409 ab, solange der
+    // Agent das Dokument noch referenziert. Die Altlasten werden deshalb
+    // gesammelt und erst nach dem Agent-Update entfernt.
+    //
+    // Der Name kollidiert für die Dauer eines Laufs; die IDs sind der
+    // Schlüssel, deshalb bekommt das neue Dokument vorübergehend ein Suffix.
+    const neu = await api('/convai/knowledge-base/text', {
+      method: 'POST',
+      body: { name: alt ? `${name}-neu` : name, text },
+    });
+
+    if (alt) altlasten.push({ id: alt.id, name, neueId: neu.id });
+
     gut(`${name} (${neu.id})`);
     locators.push({ type: 'text', name, id: neu.id, usage_mode: 'auto' });
   }
 
   zustand.knowledge = locators;
-  return locators;
+  return { locators, altlasten };
+}
+
+/**
+ * Räumt die ersetzten Wissensdokumente weg.
+ *
+ * Erst nach dem Agent-Update aufrufen — vorher verweigert ElevenLabs das
+ * Löschen mit 409, weil der Agent noch daran hängt. Schlägt es trotzdem fehl,
+ * ist das kein Grund zum Abbruch: Ein übrig gebliebenes Dokument kostet
+ * nichts, es steht nur unnütz in der Liste.
+ */
+async function altlastenRaeumen(altlasten) {
+  if (!altlasten?.length || TROCKEN) return;
+  schritt('Ersetzte Wissensdokumente entfernen');
+
+  for (const a of altlasten) {
+    try {
+      await api(`/convai/knowledge-base/${a.id}`, { method: 'DELETE', erlaubt404: true });
+      await api(`/convai/knowledge-base/${a.neueId}`, { method: 'PATCH', body: { name: a.name } });
+      gut(`${a.name} aufgeräumt`);
+    } catch (err) {
+      warn(`${a.name}: ${err.message.split('\n')[0]}`);
+      warn('  Bleibt liegen — im Dashboard unter Knowledge Base entfernbar.');
+    }
+  }
 }
 
 /** 3. Server-Tools aus elevenlabs/tools/. */
@@ -303,7 +341,20 @@ async function postCallWebhookSicherstellen(env, zustand) {
 
     const neu = await api('/workspace/webhooks', {
       method: 'POST',
-      body: { settings: { auth_type: 'hmac', name, webhook_url: url } },
+      body: {
+        settings: {
+          auth_type: 'hmac',
+          name,
+          webhook_url: url,
+          // Der Token muss mit, obwohl die HMAC-Signatur die eigentliche
+          // Beglaubigung ist: Der n8n-Webhook davor prüft Header-Auth und
+          // würde einen Aufruf ohne Token mit 403 abweisen, bevor die
+          // Signatur überhaupt geprüft wird. Beides zusammen ist zudem
+          // richtig herum gestaffelt — n8n wehrt Fremdverkehr früh ab, die
+          // Control-API stellt danach fest, dass es wirklich ElevenLabs war.
+          request_headers: { 'X-Voice-Token': env.VOICE_WEBHOOK_TOKEN },
+        },
+      },
     });
     gut(`${name} angelegt (${neu.webhook_id})`);
 
@@ -348,7 +399,12 @@ async function postCallWebhookSicherstellen(env, zustand) {
   // Nur Kosmetik und Zustellverhalten — die URL bleibt, wie sie ist.
   await api(`/workspace/webhooks/${treffer.webhook_id}`, {
     method: 'PATCH',
-    body: { name, is_disabled: false, retry_enabled: true },
+    body: {
+      name,
+      is_disabled: false,
+      retry_enabled: true,
+      request_headers: { 'X-Voice-Token': env.VOICE_WEBHOOK_TOKEN },
+    },
   });
   gut(`${name} unverändert und aktiv (${treffer.webhook_id})`);
   return treffer.webhook_id;
@@ -517,7 +573,10 @@ async function main() {
       : (zustand.secret_id ?? abbruch('Secret-Schritt übersprungen, aber keine ID gespeichert.'));
     zustand.secret_id = secretId;
 
-    const wissen = machen('wissen') ? await wissenSicherstellen(zustand) : (zustand.knowledge ?? []);
+    const wissenErgebnis = machen('wissen')
+      ? await wissenSicherstellen(zustand)
+      : { locators: zustand.knowledge ?? [], altlasten: [] };
+    const wissen = wissenErgebnis.locators;
     const toolIds = machen('tools') ? await toolsSicherstellen(env, secretId, zustand) : (zustand.tools ?? []);
 
     if (machen('webhooks')) {
@@ -528,6 +587,7 @@ async function main() {
     if (machen('agent')) {
       await stimmeSicherstellen(env);
       zustand.agent_id = await agentSicherstellen(env, zustand, { toolIds, wissen });
+      await altlastenRaeumen(wissenErgebnis.altlasten);
     }
 
     zustand.zuletzt = new Date().toISOString();

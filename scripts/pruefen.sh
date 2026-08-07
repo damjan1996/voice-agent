@@ -97,6 +97,23 @@ for w in docker node curl openssl python3; do
   if command -v "$w" >/dev/null 2>&1; then ok "$w"; else bad "$w fehlt"; fi
 done
 docker compose version >/dev/null 2>&1 && ok "docker compose" || bad "docker compose fehlt"
+
+# make ist kein Muss — jedes Ziel hat einen direkten Aufruf. Aber die ganze
+# Dokumentation ist in make-Befehlen geschrieben, deshalb muss das Fehlen
+# gesagt werden, statt dass jemand an "command not found" hängenbleibt.
+if command -v make >/dev/null 2>&1; then
+  ok "make"
+else
+  warn "make ist nicht installiert" \
+       "Die Doku nutzt make-Befehle. Entweder 'sudo apt install make', oder direkt:
+        make hoch     → docker compose up -d
+        make status   → bash scripts/status.sh
+        make pruefen  → bash scripts/pruefen.sh
+        make agent    → node scripts/provision-elevenlabs.mjs
+        make import   → node scripts/import-n8n-workflows.mjs
+        make test     → cd control-api && npm test
+        make sichern  → bash scripts/sichern.sh"
+fi
 echo
 
 # --- Fremdsysteme ------------------------------------------------------------

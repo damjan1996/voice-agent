@@ -12,7 +12,7 @@
     "type": "webhook",
     "name": "termin_buchen",
     "description": "Trägt einen verbindlichen Termin in Damjans Kalender ein. NUR aufrufen, wenn der Anrufer einer konkreten Zeit ausdrücklich zugestimmt hat. Nicht aufrufen, um Zeiten zu prüfen — dafür ist verfuegbarkeit_pruefen da.",
-    "response_timeout_secs": 20,
+    "response_timeout_secs": 25,
     "execution_mode": "immediate",
     "pre_tool_speech": "force",
     "interruption_mode": "disable_during_tool",
@@ -23,7 +23,9 @@
       "method": "POST",
       "content_type": "application/json",
       "request_headers": {
-        "X-Voice-Token": { "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}" }
+        "X-Voice-Token": {
+          "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}"
+        }
       },
       "request_body_schema": {
         "type": "object",
@@ -67,8 +69,13 @@
             "dynamic_variable": "system__caller_id"
           }
         },
-        "required": ["start", "name", "thema"]
+        "required": [
+          "start",
+          "name",
+          "thema"
+        ]
       }
-    }
+    },
+    "_response_timeout_secs": "Die n8n-Kette summiert sich auf höchstens 17 s (5 + 8 + 4). Acht Sekunden Luft, damit ein langsamer Google-Aufruf nicht dazu führt, dass ElevenLabs abbricht, während n8n den Termin danach doch noch einträgt — der Anrufer hörte dann eine Absage für einen Termin, der steht."
   }
 }

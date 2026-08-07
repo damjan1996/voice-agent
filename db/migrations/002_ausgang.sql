@@ -16,12 +16,16 @@
 
 SET search_path TO voice, public;
 
-CREATE TYPE voice.ausgang_status AS ENUM ('offen', 'gesendet', 'fehlgeschlagen', 'verworfen');
+SELECT voice.typ_anlegen('ausgang_status', $$'offen', 'gesendet', 'fehlgeschlagen', 'verworfen'$$);
 
 CREATE TABLE IF NOT EXISTS voice.outbox (
     id              BIGSERIAL   PRIMARY KEY,
 
-    -- Wohin. Leer = an OWNER_PHONE aus der Konfiguration.
+    -- Wohin. Leer = an den Standardempfänger.
+    --
+    -- Den setzt der WhatsApp-Bot aus VOICEAGENT_OWNER_JID in seiner eigenen
+    -- .env — nicht die Control-API. Die kennt keine WhatsApp-Kennungen und
+    -- reicht ein leeres Feld unverändert durch.
     empfaenger      TEXT,
     kanal           TEXT        NOT NULL DEFAULT 'whatsapp',
 
@@ -59,10 +63,17 @@ CREATE INDEX IF NOT EXISTS outbox_faellig_idx
 --  nächsten Morgen um 7 gelegt. Ein Werbeanruf um drei Uhr nachts soll
 --  niemanden wecken; ein echter Notfall schon.
 
+-- Die frühere Fassung nahm SMALLINT. Postgres castet ein Ganzzahl-Literal
+-- nicht implizit dorthin, deshalb scheiterte jeder Aufruf von Hand mit
+-- "function does not exist" — ausgerechnet bei der Fehlersuche, für die
+-- die Betriebsdoku ihn empfiehlt. Die alte Signatur muss ausdrücklich weg,
+-- sonst stünden nach einem Update zwei mehrdeutige Überladungen da.
+DROP FUNCTION IF EXISTS voice.melde(TEXT, TEXT, SMALLINT, BIGINT, TEXT);
+
 CREATE OR REPLACE FUNCTION voice.melde(
     p_text          TEXT,
     p_anlass        TEXT,
-    p_dringlichkeit SMALLINT DEFAULT 3,
+    p_dringlichkeit INT      DEFAULT 3,
     p_call_id       BIGINT   DEFAULT NULL,
     p_empfaenger    TEXT     DEFAULT NULL
 ) RETURNS BIGINT AS $$

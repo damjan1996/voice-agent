@@ -25,7 +25,7 @@ curl -s https://voice.damjan-savic.com/webhook/voice/init -X POST \
 
 | Antwort | Bedeutung |
 |---|---|
-| `401` | Alles gut. Der Weg steht, nur der Token fehlt beim Test. |
+| `403` | Alles gut. Der Weg steht — n8n weist den Test nur ab, weil der Token fehlt. |
 | `404` | n8n kennt den Webhook nicht. → `make import` |
 | `502`/`504` | n8n antwortet nicht. → `docker compose restart n8n` |
 | Verbindungsfehler | DNS, nginx oder Zertifikat. |
@@ -147,9 +147,14 @@ Kontakte) und `n8n` (Workflows, Zugangsdaten).
 Sinnvoll als Cronjob:
 
 ```cron
-0 3 * * * cd /home/damjan/voice-agent && make sichern >/dev/null 2>&1
-0 4 * * 0 find /home/damjan/voice-agent/backups -name '*.sql.gz' -mtime +30 -delete
+0 3 * * * cd /home/damjan/voice-agent && bash scripts/sichern.sh >/dev/null
 ```
+
+Bewusst `scripts/sichern.sh` statt `make sichern`: Das Skript braucht kein
+make, räumt Sicherungen älter als 30 Tage selbst weg und beendet sich mit
+einem Fehlercode, wenn der Dump leer bleibt. Damit schickt cron eine Mail,
+statt still weiterzumachen — nur `2>&1` darf man nicht anhängen, sonst
+verschluckt man genau diese Meldung.
 
 ## Aktualisieren
 

@@ -11,7 +11,7 @@
     "type": "webhook",
     "name": "verfuegbarkeit_pruefen",
     "description": "Ermittelt, wann Damjan Zeit für ein Gespräch hat, und liefert konkrete Terminvorschläge. Aufrufen, sobald es im Gespräch um einen Termin geht. NICHT aufrufen, wenn der Betriebsmodus 'aus' ist.",
-    "response_timeout_secs": 15,
+    "response_timeout_secs": 18,
     "execution_mode": "immediate",
     "pre_tool_speech": "auto",
     "interruption_mode": "disable_during_tool",
@@ -22,7 +22,9 @@
       "method": "POST",
       "content_type": "application/json",
       "request_headers": {
-        "X-Voice-Token": { "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}" }
+        "X-Voice-Token": {
+          "secret_id": "${SECRET_ID_WEBHOOK_TOKEN}"
+        }
       },
       "request_body_schema": {
         "type": "object",
@@ -35,7 +37,11 @@
           "tageszeit": {
             "type": "string",
             "description": "Bevorzugte Tageszeit, falls genannt.",
-            "enum": ["vormittags", "nachmittags", "egal"]
+            "enum": [
+              "vormittags",
+              "nachmittags",
+              "egal"
+            ]
           },
           "dauer_minuten": {
             "type": "integer",
@@ -68,6 +74,7 @@
         },
         "required": []
       }
-    }
+    },
+    "_response_timeout_secs": "Die n8n-Kette summiert sich auf höchstens 11 s (4 + 7). Sieben Sekunden Luft. Länger sollte es nicht sein: Der Anrufer wartet währenddessen schweigend."
   }
 }

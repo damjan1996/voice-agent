@@ -101,6 +101,14 @@ export async function setze({ modus, bis, danach, hinweis, akteur = 'unbekannt' 
     throw Object.assign(new Error(`Unbekannter Folgemodus "${danach}"`), { code: 'BAD_MODE' });
   }
 
+  // String(...) statt hinweis?.trim(): Der Wert kommt aus einem JSON-Body und
+  // ist nicht zwangsläufig eine Zeichenkette. Eine Zahl oder ein Objekt hätte
+  // kein .trim() und riss die Anfrage in einen 500er. Gekappt wird, weil der
+  // Text am Telefon vorgelesen wird — ein Roman gehört da nicht hinein.
+  const hinweisText = hinweis === undefined || hinweis === null
+    ? null
+    : (String(hinweis).trim().slice(0, 300) || null);
+
   const { rows } = await query(`
     UPDATE voice.agent_state
        SET mode          = $1,
@@ -113,7 +121,7 @@ export async function setze({ modus, bis, danach, hinweis, akteur = 'unbekannt' 
            updated_by    = $5
      WHERE id = 1
     RETURNING mode, mode_until
-  `, [modus, giltBis, rueckfall, hinweis?.trim() || null, akteur]);
+  `, [modus, giltBis, rueckfall, hinweisText, akteur]);
 
   await audit(akteur, 'mode.set', {
     modus, gilt_bis: giltBis?.toISOString() ?? null, danach: rueckfall, hinweis: hinweis ?? null,

@@ -15,8 +15,15 @@ const { Pool, types } = pg;
 // sie im JSON als "42" statt 42 landen und die Bot-Ausgabe unnötig verwirren.
 types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
 
+// Ohne connectionString: pg liest PGHOST, PGUSER, PGPASSWORD, PGDATABASE und
+// PGPORT von selbst aus der Umgebung. Eine zusammengesetzte URL wäre bei einem
+// Passwort mit @, / oder # schlicht falsch — und der Fehler zeigte sich nur
+// als "Verbindung abgelehnt", nicht als "falsches Passwort".
+//
+// DATABASE_URL wird weiterhin akzeptiert, damit bestehende Installationen und
+// Aufrufe von Hand nicht brechen. Ist beides gesetzt, gewinnt die URL.
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  ...(process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {}),
   max: 8,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,

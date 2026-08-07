@@ -181,7 +181,17 @@ services:
       NODE_ENV: production
       PORT: 3010
       TZ: ${TZ:-Europe/Berlin}
-      DATABASE_URL: postgres://${DB_USER:-voiceagent}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-voiceagent}
+
+      # Einzelfelder statt einer URL. Ein Passwort mit @, /, ? oder # macht
+      # eine zusammengesetzte URL kaputt — die Control-API bekäme dann keine
+      # Verbindung und der Agent liefe dauerhaft im Notbetrieb, ohne dass
+      # irgendwo "falsches Passwort" stünde. pg liest diese Variablen von
+      # selbst; nichts muss kodiert werden.
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${DB_USER:-voiceagent}
+      PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+      PGDATABASE: ${DB_NAME:-voiceagent}
       # Für den WhatsApp-Bot und das CLI.
       CONTROL_API_TOKEN: ${CONTROL_API_TOKEN:?CONTROL_API_TOKEN fehlt in .env}
       # Für n8n und die ElevenLabs-Werkzeuge — bewusst ein anderer Token:

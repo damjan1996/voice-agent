@@ -111,7 +111,8 @@ Ausführlich: **[docs/03-einrichtung.md](docs/03-einrichtung.md)**
 
 ## Bedienung
 
-Per WhatsApp oder per `voiceagent` auf der Kommandozeile — dieselben Befehle.
+Per WhatsApp oder per `voiceagent` auf der Kommandozeile. Das CLI deckt alles
+ab bis auf `kontakt` und `sperre` — die gibt es nur über WhatsApp.
 
 | Befehl | Wirkung |
 |---|---|

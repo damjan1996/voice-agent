@@ -15,13 +15,18 @@
         "httpMethod": "POST",
         "path": "voice/postcall",
         "responseMode": "responseNode",
-        "options": { "rawBody": true }
+        "options": {
+          "rawBody": true
+        }
       },
       "id": "a5000000-0000-4000-8000-000000000001",
       "name": "ElevenLabs meldet Gesprächsende",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [-660, 0],
+      "position": [
+        -660,
+        0
+      ],
       "webhookId": "b5000000-0000-4000-8000-000000000005",
       "notes": "rawBody: true ist Pflicht. Die HMAC-Signatur wird über den ROHEN Text\ngebildet — sobald n8n den Body zu JSON macht und wieder ausgibt, stimmt\nsie rechnerisch nicht mehr."
     },
@@ -32,42 +37,65 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "ElevenLabs-Signature", "value": "={{ $json.headers['elevenlabs-signature'] }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "ElevenLabs-Signature",
+              "value": "={{ $json.headers['elevenlabs-signature'] }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ Buffer.from($binary.data.data, 'base64').toString('utf8') }}",
+        "contentType": "binaryData",
         "options": {
           "timeout": 15000,
-          "response": { "response": { "neverError": true, "fullResponse": true } }
-        }
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        },
+        "inputDataFieldName": "data"
       },
       "id": "a5000000-0000-4000-8000-000000000002",
       "name": "Signatur prüfen und wegschreiben",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-440, 0],
-      "notes": "Der rohe Body geht unverändert weiter. Die Control-API kennt das\nHMAC-Geheimnis — n8n nicht, und das ist Absicht: Workflow-JSON liegt in\nn8n unverschlüsselt in der Datenbank."
+      "position": [
+        -440,
+        0
+      ],
+      "notes": "Die Binärdaten des Webhooks gehen UNVERÄNDERT weiter\n(contentType: binaryData). Der Umweg über einen Ausdruck wie\nBuffer.from($binary.data.data,'base64') schlug fehl — n8n reicht den\nrohen Text über den $binary-Proxy nicht so heraus, und die\nHMAC-Signatur passte dann nie. Aufgefallen ist das erst im Test\ngegen die echte Kette; direkt an der Control-API funktionierte es.\n\nDie Control-API kennt das HMAC-Geheimnis — n8n nicht, und das ist\nAbsicht: Workflow-JSON liegt in n8n unverschlüsselt in der Datenbank."
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
           "conditions": [
             {
               "id": "c5000000-0000-4000-8000-000000000001",
               "leftValue": "={{ $json.statusCode }}",
               "rightValue": 200,
-              "operator": { "type": "number", "operation": "equals" }
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
             },
             {
               "id": "c5000000-0000-4000-8000-000000000002",
               "leftValue": "={{ $json.body.hat_notiz === false && ($json.body.abschrift || '').length > 40 }}",
               "rightValue": "",
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -78,7 +106,10 @@
       "name": "Zusammenfassung nötig?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [-220, 0],
+      "position": [
+        -220,
+        0
+      ],
       "notes": "Nur wenn der Agent KEINE Notiz hinterlassen hat und trotzdem gesprochen\nwurde. Der Normalfall braucht kein Modell — der Agent hat schon\nzusammengefasst, während er dabei war."
     },
     {
@@ -90,8 +121,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "content-type", "value": "application/json" }
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -99,25 +136,37 @@
         "jsonBody": "={{ JSON.stringify({\n  model: 'claude-haiku-4-5',\n  max_tokens: 400,\n  system: 'Du fasst Telefonate für Damjan Savić zusammen. Er liest das auf dem Handy und hat fünf Sekunden. Antworte NUR mit JSON, ohne Vorrede und ohne Codeblock:\\n{\"thema\": \"höchstens acht Wörter\", \"zusammenfassung\": \"zwei bis vier Sätze: was wollte der Anrufer, was wurde besprochen, was ist zu tun\", \"dringlichkeit\": 1-5, \"ergebnis\": \"nachricht|termin|durchgestellt|abgewimmelt|rueckruf|unklar\", \"name\": \"Name des Anrufers oder unbekannt\"}\\n\\nDringlichkeit: 1 = Werbung oder Irrläufer, 3 = normal, 5 = muss heute passieren. Sei ehrlich — wenn alles dringend ist, ist nichts dringend.',\n  messages: [{ role: 'user', content: 'Abschrift des Telefonats:\\n\\n' + $json.body.abschrift }],\n}) }}",
         "options": {
           "timeout": 30000,
-          "response": { "response": { "neverError": true, "fullResponse": true } }
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
         }
       },
       "id": "a5000000-0000-4000-8000-000000000004",
       "name": "Claude Haiku fasst zusammen",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [20, -120],
-      "notes": "Zugangsdaten: Header-Auth-Credential mit Name 'x-api-key' und dem\nAnthropic-Schlüssel als Wert.\n\nWarum Haiku und nicht das Agent-Modell: hier zählt Sorgfalt statt\nAntwortzeit — es hört ja niemand mehr zu. Haiku 4.5 kostet 1 USD je\nMillion Eingabe-Token; ein Telefonat sind ein paar Tausend."
+      "position": [
+        20,
+        -120
+      ],
+      "notes": "onError: continueRegularOutput — fehlt die Anthropic-Credential ganz,\nwirft der Node vor der Anfrage und der Workflow stirbt, bevor die\nZusammenfassung gesichert wird.\n\nZugangsdaten: Header-Auth-Credential mit Name 'x-api-key' und dem\nAnthropic-Schlüssel als Wert.\n\nWarum Haiku und nicht das Agent-Modell: hier zählt Sorgfalt statt\nAntwortzeit — es hört ja niemand mehr zu. Haiku 4.5 kostet 1 USD je\nMillion Eingabe-Token; ein Telefonat sind ein paar Tausend.",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "// ---------------------------------------------------------------------------\n//  Zusammenfassung übernehmen\n// ---------------------------------------------------------------------------\n//  Modelle liefern trotz klarer Ansage gelegentlich einen Codeblock oder\n//  einen einleitenden Satz. Beides wird hier abgeräumt. Lässt sich am Ende\n//  kein JSON gewinnen, wird die Rohantwort als Zusammenfassung genommen —\n//  eine unformatierte Notiz ist besser als gar keine.\n\nconst quelle = $('Signatur prüfen und wegschreiben').first().json.body;\nconst antwort = $input.first().json;\n\nlet ergebnis = null;\n\nif (antwort.statusCode >= 200 && antwort.statusCode < 300) {\n  const text = (antwort.body?.content ?? []).map((c) => c.text ?? '').join('').trim();\n  const ohneZaun = text.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  const klammer = ohneZaun.slice(ohneZaun.indexOf('{'), ohneZaun.lastIndexOf('}') + 1);\n\n  try {\n    ergebnis = JSON.parse(klammer);\n  } catch {\n    console.warn('Antwort war kein JSON — nehme den Rohtext.');\n    ergebnis = { thema: 'Anruf ohne Notiz', zusammenfassung: text.slice(0, 800), dringlichkeit: 3, ergebnis: 'unklar' };\n  }\n} else {\n  console.error(`Anthropic HTTP ${antwort.statusCode}`);\n  ergebnis = {\n    thema: 'Anruf ohne Notiz',\n    zusammenfassung: 'Der Agent hat nichts notiert und die Nachbereitung ist fehlgeschlagen. Die vollständige Abschrift steht in der Datenbank.',\n    dringlichkeit: 3,\n    ergebnis: 'unklar',\n  };\n}\n\nconst dringlichkeit = Math.min(Math.max(Number(ergebnis.dringlichkeit) || 3, 1), 5);\nconst wer = ergebnis.name && ergebnis.name !== 'unbekannt' ? ergebnis.name : quelle.anrufer;\nconst symbol = dringlichkeit >= 4 ? '🔴' : dringlichkeit <= 2 ? '⚪' : '🟠';\nconst minuten = quelle.dauer_sekunden ? ` · ${Math.max(1, Math.round(quelle.dauer_sekunden / 60))} Min.` : '';\n\nreturn [{ json: {\n  conversation_id: quelle.conversation_id,\n  call_id: quelle.call_id,\n  zusammenfassung: ergebnis.zusammenfassung,\n  meldung: `${symbol} *Anruf von ${wer}*${minuten}\\n_${ergebnis.thema}_\\n\\n${ergebnis.zusammenfassung}\\n\\n_Nachträglich zusammengefasst — der Agent kam nicht mehr dazu._`,\n  dringlichkeit,\n} }];\n"
+        "jsCode": "// ---------------------------------------------------------------------------\n//  Zusammenfassung übernehmen\n// ---------------------------------------------------------------------------\n//  Modelle liefern trotz klarer Ansage gelegentlich einen Codeblock oder\n//  einen einleitenden Satz. Beides wird hier abgeräumt. Lässt sich am Ende\n//  kein JSON gewinnen, wird die Rohantwort als Zusammenfassung genommen —\n//  eine unformatierte Notiz ist besser als gar keine.\n\nconst quelle = $('Signatur prüfen und wegschreiben').first().json.body;\nconst antwort = $input.first().json;\n\nlet ergebnis = null;\n\nif (antwort?.error) {\n  console.error(`Anthropic-Node fehlgeschlagen: ${antwort.error.message ?? antwort.error}`);\n  ergebnis = null;\n} else if (antwort.statusCode >= 200 && antwort.statusCode < 300) {\n  const text = (antwort.body?.content ?? []).map((c) => c.text ?? '').join('').trim();\n  const ohneZaun = text.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  const klammer = ohneZaun.slice(ohneZaun.indexOf('{'), ohneZaun.lastIndexOf('}') + 1);\n\n  try {\n    ergebnis = JSON.parse(klammer);\n  } catch {\n    console.warn('Antwort war kein JSON — nehme den Rohtext.');\n    ergebnis = { thema: 'Anruf ohne Notiz', zusammenfassung: text.slice(0, 800), dringlichkeit: 3, ergebnis: 'unklar' };\n  }\n}\n\nif (!ergebnis) {\n  console.error(`Keine Zusammenfassung (HTTP ${antwort?.statusCode ?? '—'})`);\n  ergebnis = {\n    thema: 'Anruf ohne Notiz',\n    zusammenfassung: 'Der Agent hat nichts notiert und die Nachbereitung ist fehlgeschlagen. Die vollständige Abschrift steht in der Datenbank.',\n    dringlichkeit: 3,\n    ergebnis: 'unklar',\n  };\n}\n\nconst dringlichkeit = Math.min(Math.max(Number(ergebnis.dringlichkeit) || 3, 1), 5);\nconst wer = ergebnis.name && ergebnis.name !== 'unbekannt' ? ergebnis.name : quelle.anrufer;\nconst symbol = dringlichkeit >= 4 ? '🔴' : dringlichkeit <= 2 ? '⚪' : '🟠';\nconst minuten = quelle.dauer_sekunden ? ` · ${Math.max(1, Math.round(quelle.dauer_sekunden / 60))} Min.` : '';\n\nreturn [{ json: {\n  conversation_id: quelle.conversation_id,\n  call_id: quelle.call_id,\n  zusammenfassung: ergebnis.zusammenfassung,\n  meldung: `${symbol} *Anruf von ${wer}*${minuten}\\n_${ergebnis.thema}_\\n\\n${ergebnis.zusammenfassung}\\n\\n_Nachträglich zusammengefasst — der Agent kam nicht mehr dazu._`,\n  dringlichkeit,\n} }];\n"
       },
       "id": "a5000000-0000-4000-8000-000000000005",
       "name": "Zusammenfassung auswerten",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, -120]
+      "position": [
+        240,
+        -120
+      ]
     },
     {
       "parameters": {
@@ -126,7 +175,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-Voice-Token", "value": "__VOICE_TOKEN__" }
+            {
+              "name": "X-Voice-Token",
+              "value": "__VOICE_TOKEN__"
+            }
           ]
         },
         "sendBody": true,
@@ -134,14 +186,21 @@
         "jsonBody": "={{ JSON.stringify({ conversation_id: $json.conversation_id, zusammenfassung: $json.zusammenfassung }) }}",
         "options": {
           "timeout": 8000,
-          "response": { "response": { "neverError": true } }
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
         }
       },
       "id": "a5000000-0000-4000-8000-000000000006",
       "name": "Zusammenfassung sichern",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [460, -120]
+      "position": [
+        460,
+        -120
+      ]
     },
     {
       "parameters": {
@@ -150,7 +209,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-Voice-Token", "value": "__VOICE_TOKEN__" }
+            {
+              "name": "X-Voice-Token",
+              "value": "__VOICE_TOKEN__"
+            }
           ]
         },
         "sendBody": true,
@@ -158,53 +220,125 @@
         "jsonBody": "={{ JSON.stringify({ text: $('Zusammenfassung auswerten').item.json.meldung, anlass: 'anruf', dringlichkeit: $('Zusammenfassung auswerten').item.json.dringlichkeit, call_id: $('Zusammenfassung auswerten').item.json.call_id }) }}",
         "options": {
           "timeout": 8000,
-          "response": { "response": { "neverError": true } }
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
         }
       },
       "id": "a5000000-0000-4000-8000-000000000007",
       "name": "Damjan Bescheid geben",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, -120]
+      "position": [
+        680,
+        -120
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({ ok: true }) }}",
-        "options": { "responseCode": 200 }
+        "options": {
+          "responseCode": 200
+        }
       },
       "id": "a5000000-0000-4000-8000-000000000008",
       "name": "Empfang bestätigen",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [900, 0],
+      "position": [
+        900,
+        0
+      ],
       "notes": "Immer 200 — auch wenn die Signatur nicht stimmte. ElevenLabs wiederholt\nsonst und schaltet den Webhook nach zehn Fehlversuchen ab. Abgewiesene\nAufrufe stehen im Log der Control-API."
     }
   ],
   "connections": {
     "ElevenLabs meldet Gesprächsende": {
-      "main": [[{ "node": "Signatur prüfen und wegschreiben", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Signatur prüfen und wegschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Signatur prüfen und wegschreiben": {
-      "main": [[{ "node": "Zusammenfassung nötig?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung nötig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Zusammenfassung nötig?": {
       "main": [
-        [{ "node": "Claude Haiku fasst zusammen", "type": "main", "index": 0 }],
-        [{ "node": "Empfang bestätigen", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Claude Haiku fasst zusammen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Empfang bestätigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Claude Haiku fasst zusammen": {
-      "main": [[{ "node": "Zusammenfassung auswerten", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Zusammenfassung auswerten": {
-      "main": [[{ "node": "Zusammenfassung sichern", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung sichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Zusammenfassung sichern": {
-      "main": [[{ "node": "Damjan Bescheid geben", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Damjan Bescheid geben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Damjan Bescheid geben": {
-      "main": [[{ "node": "Empfang bestätigen", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Empfang bestätigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "pinData": {}

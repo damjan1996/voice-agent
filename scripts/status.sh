@@ -93,6 +93,10 @@ else
 fi
 
 echo
-echo -e "${GA}  n8n-Oberfläche:  ssh -L ${N8N_LOCAL_PORT:-5679}:127.0.0.1:${N8N_LOCAL_PORT:-5679} $(whoami)@\$(hostname)${A}"
+# Den Hostnamen vorher auflösen. Stand $(hostname) im Text, wurde es
+# wörtlich gedruckt und der Befehl war nicht kopierbar.
+HOSTADRESSE=$(hostname -I 2>/dev/null | awk '{print $1}')
+[[ -z "$HOSTADRESSE" ]] && HOSTADRESSE=$(hostname)
+echo -e "${GA}  n8n-Oberfläche:  ssh -L ${N8N_LOCAL_PORT:-5679}:127.0.0.1:${N8N_LOCAL_PORT:-5679} $(whoami)@${HOSTADRESSE}${A}"
 echo -e "${GA}  dann http://127.0.0.1:${N8N_LOCAL_PORT:-5679} im Browser${A}"
 echo

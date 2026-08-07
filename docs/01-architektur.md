@@ -103,7 +103,10 @@ location = /webhook/voice/init {
     error_page 404 500 502 503 504 = @init_ausweich;
 }
 location @init_ausweich {
-    proxy_pass http://voice_control/intern/init;
+    # rewrite statt proxy_pass MIT URI — in einer benannten Location lehnt
+    # nginx letzteres ab und startet die ganze Konfiguration nicht.
+    rewrite ^ /intern/init break;
+    proxy_pass http://voice_control;
 }
 ```
 
