@@ -58,11 +58,15 @@ if [[ -n "${N8N_BASE_URL:-}" ]]; then
   code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
          -H 'Content-Type: application/json' -d '{"__probe":true}' \
          "$N8N_BASE_URL/webhook/voice/init" 2>/dev/null || echo 000)
+  # curl schreibt bei Verbindungsfehlern "000" — bei Umleitungen aber auch
+  # mehrfach hintereinander ("000000"). Deshalb nicht auf Gleichheit prüfen,
+  # sondern auf eine echte HTTP-Antwort.
   if [[ "$code" == "404" ]]; then
     echo -e "  ${RO}✗${A} Webhook /voice/init ${GE}nicht registriert (HTTP 404)${A}"
     echo -e "      ${GA}docker compose restart n8n && sleep 30 && make import${A}"
-  elif [[ "$code" == "000" ]]; then
-    echo -e "  ${RO}✗${A} Webhook /voice/init ${GE}nicht erreichbar — DNS/nginx/Zertifikat prüfen${A}"
+  elif [[ ! "$code" =~ ^[1-5][0-9][0-9]$ ]]; then
+    echo -e "  ${RO}✗${A} Webhook /voice/init ${GE}von außen nicht erreichbar${A}"
+    echo -e "      ${GA}DNS-A-Record, nginx-Vhost und Zertifikat prüfen${A}"
   else
     echo -e "  ${GR}✓${A} Webhook /voice/init ${GA}(HTTP $code)${A}"
   fi

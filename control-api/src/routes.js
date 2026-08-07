@@ -93,9 +93,13 @@ function statusText(d) {
     }
   }
 
-  const aus = (d.workflows?.eintraege ?? []).filter((w) => !w.aktiv_in_n8n && w.bekannt_in_n8n);
+  // Nur melden, was aktiv sein SOLL und es nicht ist. Der Fehler-Workflow
+  // hat keinen eigenen Trigger und ist im Normalzustand inaktiv — ihn hier
+  // zu melden wäre ein Daueralarm, den man nach drei Tagen ignoriert.
+  const aus = (d.workflows?.eintraege ?? [])
+    .filter((w) => w.bekannt_in_n8n && w.aktiv_in_n8n === false && w.soll_aktiv !== false);
   if (aus.length) {
-    zeilen.push('', `⚠️ Nicht aktiv in n8n: ${aus.map((w) => w.slug).join(', ')}`);
+    zeilen.push('', `⚠️ Sollte laufen, tut es aber nicht: ${aus.map((w) => w.slug).join(', ')}`);
   }
   if (d.workflows?.fehler) zeilen.push('', `⚠️ n8n nicht erreichbar: ${d.workflows.fehler}`);
   if (d.elevenlabs && d.elevenlabs.ok === false) {
@@ -338,7 +342,10 @@ async function workflowUebersicht() {
       webhook: r.webhook_path,
       schaltbar: r.toggleable,
       kritisch: r.critical,
+      // Was beim Import als Sollzustand hinterlegt wurde …
+      soll_aktiv: r.active,
       bekannt_in_n8n: Boolean(l),
+      // … und was in n8n tatsächlich der Fall ist.
       aktiv_in_n8n: l ? l.active : null,
     };
   });
