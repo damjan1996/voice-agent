@@ -17,10 +17,18 @@
 
 'use strict';
 
-const BASIS = process.env.VOICEAGENT_API_URL || 'http://127.0.0.1:3010';
-const TOKEN = process.env.VOICEAGENT_API_TOKEN || '';
-const ZIEL = process.env.VOICEAGENT_OWNER_JID || '';
-const TAKT_MS = Number(process.env.VOICEAGENT_POLL_MS || 15_000);
+// Bei JEDEM Zugriff aus der Umgebung lesen, nicht einmal beim Laden.
+//
+// bot.js liest seine .env erst nach den require-Aufrufen ein. Wer die Werte
+// beim Laden des Moduls festhält, bekommt leere Strings und der Abholer
+// bleibt still aus — mit einer Meldung, die aussieht, als fehlte die
+// Konfiguration. Genau das ist beim ersten Einbau passiert.
+const cfg = () => ({
+  basis: process.env.VOICEAGENT_API_URL || 'http://127.0.0.1:3010',
+  token: process.env.VOICEAGENT_API_TOKEN || '',
+  ziel: process.env.VOICEAGENT_OWNER_JID || '',
+  takt: Number(process.env.VOICEAGENT_POLL_MS || 15_000),
+});
 
 let laeuft = null;
 let holtGerade = false;
@@ -29,11 +37,12 @@ let stilleFehler = 0;
 function log(text) { console.log(`[voice-outbox] ${text}`); }
 
 async function ruf(pfad, optionen = {}) {
-  const antwort = await fetch(`${BASIS}${pfad}`, {
+  const { basis, token } = cfg();
+  const antwort = await fetch(`${basis}${pfad}`, {
     ...optionen,
     signal: AbortSignal.timeout(15_000),
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${token}`,
       ...(optionen.body ? { 'Content-Type': 'application/json' } : {}),
       ...optionen.headers,
     },
@@ -51,11 +60,12 @@ async function ruf(pfad, optionen = {}) {
  * zugestellt.
  */
 function alsJid(nummer) {
-  if (!nummer) return ZIEL || null;
+  const ziel = cfg().ziel;
+  if (!nummer) return ziel || null;
   const s = String(nummer).trim();
   if (s.includes('@')) return s;
   const ziffern = s.replace(/\D/g, '');
-  return ziffern ? `${ziffern}@c.us` : (ZIEL || null);
+  return ziffern ? `${ziffern}@c.us` : (ziel || null);
 }
 
 async function einmalHolen(client) {
@@ -103,7 +113,7 @@ async function einmalHolen(client) {
     // eine Zeile, danach wieder Ruhe.
     stilleFehler++;
     if (stilleFehler === 8) {
-      log(`Seit ${Math.round((TAKT_MS * 8) / 1000)} s nicht erreichbar: ${err.message}`);
+      log(`Seit ${Math.round((cfg().takt * 8) / 1000)} s nicht erreichbar: ${err.message}`);
     }
   } finally {
     holtGerade = false;
@@ -112,13 +122,19 @@ async function einmalHolen(client) {
 
 function starten(client) {
   if (laeuft) return;
-  if (!TOKEN) {
+  const { token, takt, ziel } = cfg();
+
+  if (!token) {
     log('VOICEAGENT_API_TOKEN fehlt — Abholer bleibt aus. Siehe EINBAU.md.');
     return;
   }
+  if (!ziel) {
+    log('VOICEAGENT_OWNER_JID fehlt — es gäbe keinen Empfänger. Abholer bleibt aus.');
+    return;
+  }
 
-  log(`gestartet, Takt ${TAKT_MS / 1000} s`);
-  laeuft = setInterval(() => einmalHolen(client), TAKT_MS);
+  log(`gestartet, Takt ${takt / 1000} s, Empfänger ${ziel}`);
+  laeuft = setInterval(() => einmalHolen(client), takt);
   // Nicht den Prozess am Leben halten, nur weil ein Timer läuft.
   if (laeuft.unref) laeuft.unref();
   einmalHolen(client);

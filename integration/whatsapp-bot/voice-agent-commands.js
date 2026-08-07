@@ -16,8 +16,12 @@
 
 'use strict';
 
-const BASIS = process.env.VOICEAGENT_API_URL || 'http://127.0.0.1:3010';
-const TOKEN = process.env.VOICEAGENT_API_TOKEN || '';
+// Zur Laufzeit lesen, nicht beim Laden: bot.js liest seine .env erst nach
+// den require-Aufrufen ein. Beim Laden festgehaltene Werte wären leer.
+const cfg = () => ({
+  basis: process.env.VOICEAGENT_API_URL || 'http://127.0.0.1:3010',
+  token: process.env.VOICEAGENT_API_TOKEN || '',
+});
 
 const BEFEHLE = new Set([
   '/agent', '/anrufe', '/nachrichten', '/erledigt', '/termine',
@@ -34,16 +38,17 @@ function istVoiceBefehl(text) {
 // -----------------------------------------------------------------------------
 
 async function ruf(pfad, { method = 'GET', body, akteur } = {}) {
-  if (!TOKEN) {
+  const { basis, token } = cfg();
+  if (!token) {
     return { _fehler: 'VOICEAGENT_API_TOKEN ist im Bot nicht gesetzt. Siehe EINBAU.md.' };
   }
 
   try {
-    const antwort = await fetch(`${BASIS}${pfad}`, {
+    const antwort = await fetch(`${basis}${pfad}`, {
       method,
       signal: AbortSignal.timeout(20_000),
       headers: {
-        Authorization: `Bearer ${TOKEN}`,
+        Authorization: `Bearer ${token}`,
         'X-Akteur': akteur || 'whatsapp',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
